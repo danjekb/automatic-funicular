@@ -61,6 +61,18 @@ public final class EngineConfigJson {
             o.put("appDataDir", runtime.getAppDataDir().getAbsolutePath());
             o.put("shizukuAvailable", shizuku.isAvailable());
             o.put("theme", theme.getTheme());
+            java.io.File stateFile = new java.io.File(appContext.getFilesDir(), ".gemini/antigravity-app/.ide-proxy/state.json");
+            if (!stateFile.isFile()) {
+                stateFile = new java.io.File(appContext.getFilesDir(), ".gemini/antigravity/.ide-proxy/state.json");
+            }
+            if (stateFile.isFile()) {
+                try {
+                    String sc = new String(java.nio.file.Files.readAllBytes(stateFile.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+                    org.json.JSONObject s = new org.json.JSONObject(sc);
+                    String mUrl = s.optString("managementUrl", "");
+                    if (!mUrl.isEmpty()) o.put("modelManagerUrl", mUrl);
+                } catch (Exception ignored) {}
+            }
             return o.toString();
         } catch (Exception e) {
             return "{}";

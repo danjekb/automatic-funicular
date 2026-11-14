@@ -181,6 +181,22 @@ def patch_main(file_path):
         modified = True
         print("[web-patch] Unlocked Conversation Forking")
 
+    # 7. Inject Custom Models Manager dashboard button in Models screen (FLb)
+    models_target = 'description:"Manage your model quota and credits."},'
+    models_repl = (
+        'description:"Manage your model quota and credits."},'
+        'A.createElement(w3,{title:"Custom Models",subtitle:"Configure external and local model providers (Ollama, DeepSeek, OpenAI, Claude)."},'
+        'A.createElement(u3,null,A.createElement(v3,{label:"Antigravity Model Manager",description:"Open the local web panel to add, discover, and manage AI models.",'
+        'rightElement:A.createElement(tA,{variant:"primary",size:"sm",onClick:function(){'
+        'var u=window.__APP_CONFIG__?.modelManagerUrl||(window.location.protocol+"//"+window.location.hostname+":50998/_addon/");'
+        'window.open(u,"_blank");'
+        '}},"Open Dashboard")}))),'
+    )
+    if models_target in content and "Antigravity Model Manager" not in content:
+        content = content.replace(models_target, models_repl, 1)
+        modified = True
+        print("[web-patch] Injected Model Manager dashboard button into Models screen")
+
     if modified:
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
