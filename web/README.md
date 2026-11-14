@@ -113,6 +113,7 @@ web/
 | **`patches/touch_model_menu.js`** | IIFE | ~6.7 KB | Адаптация hover-меню выбора моделей Base UI под сенсорный ввод. |
 | **`patches/theme_sync.js`** | IIFE | ~4.7 KB | MutationObserver за классами `<html>`/`<body>` и передача смены темы в нативный Android. |
 | **`patches/startup_ready.js`** | IIFE | ~4.7 KB | Детектор первого полезного рендера DOM и перехватчик JS-ошибок для `AndroidBridge`. |
+| **`patches/shield.js`** | IIFE | ~20.1 KB | Быстрая кнопка управления политиками безопасности (Security Shield / Turbo mode) в нижней панели чата с локализацией EN/PL/RU. |
 | **`main.js`** | Raw + Patch | ~9.5 MB | Рабочий бандл React UI, пропатченный скриптом `patch_main.py`. |
 
 ### Проверка валидности (Verification)
