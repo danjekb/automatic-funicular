@@ -47,17 +47,17 @@ public final class WebSettingsFactory {
         settings.setAllowContentAccess(true); // Needed for content:// file-picker results.
         settings.setAllowFileAccessFromFileURLs(false);
         settings.setAllowUniversalAccessFromFileURLs(false);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             CookieManager.getInstance().setAcceptThirdPartyCookies(view, true);
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             settings.setSafeBrowsingEnabled(true);
         }
-        // Offscreen preraster: keeps tiles GPU-ready off the main thread (API 23+).
+        // Offscreen preraster: disabled to reduce GPU memory pressure during large AI chat trajectories.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
-                settings.setOffscreenPreRaster(true);
+                settings.setOffscreenPreRaster(false);
             } catch (Exception e) {
                 Log.w(TAG, "setOffscreenPreRaster failed", e);
             }

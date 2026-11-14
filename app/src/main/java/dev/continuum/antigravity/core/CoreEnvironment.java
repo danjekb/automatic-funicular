@@ -64,9 +64,13 @@ public final class CoreEnvironment {
         env.put("CLOUD_CODE_URL", "http://127.0.0.1:50996");
 
         // Pure-Go resolver keeps DNS independent of Android's missing /etc.
+        // madvdontneed=1 forces Go runtime to free unmapped heap memory immediately
+        // so Android's lowmemorykiller (LMK) does not terminate the background core.
         String godebug = env.get("GODEBUG");
         env.put("GODEBUG", godebug == null || godebug.isEmpty()
-                ? "netdns=go" : godebug + ",netdns=go");
+                ? "netdns=go,madvdontneed=1" : godebug + ",netdns=go,madvdontneed=1");
+        env.put("GOMEMLIMIT", "384MiB");
+        env.put("GOGC", "50");
         // Emits "ANTIGRAVITY_OPEN_URL: <url>" directly to stdout from language_server
         // so OpenUrlWatcher captures the auth URL and opens the external browser reliably.
         env.put("ANTIGRAVITY_VSCODE_HOST", "1");
