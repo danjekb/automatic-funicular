@@ -109,6 +109,14 @@ def patch_main(file_path):
         modified = True
         print("[web-patch] Cleaned up global registry on vKa dispose")
 
+    # 5. Unlock Developer Settings ("Developer-only tools" / Feature Environment Override)
+    dev_target = 'developerMode:{feature:{enabled:!1,runtimeEnvironmentOverride:!1,featureFlagOverrides:!1,workspaceUriSwitcher:!1}'
+    dev_repl = 'developerMode:{feature:{enabled:!0,runtimeEnvironmentOverride:!0,featureFlagOverrides:!0,workspaceUriSwitcher:!0}'
+    if dev_target in content:
+        content = content.replace(dev_target, dev_repl, 1)
+        modified = True
+        print("[web-patch] Unlocked developerMode (Feature Environment Override & Custom Flags)")
+
     if modified:
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)

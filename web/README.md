@@ -133,9 +133,12 @@ web/
      ```
    - Внедряются React-хуки `useState` и `useCallback`, связывающие состояние с `window.Android.isDesktopMode()` и `localStorage.getItem('ag_desktop_mode')`.
    - Находится вызов `createElement` для секции `{label:"Theme"}` и сразу за ним инжектируется элемент настройки Desktop Mode с переключателем (`Switch`).
-3. **Монохроматизация логотипа Eza**:
-   - Upstream-логотип Antigravity содержит жестко зашитый многоцветный SVG (`mask0_6153_71`).
-   - Патчер заменяет тело компонента `var Eza=...` на монохромный плоский SVG, использующий CSS-токены `text-[#9AA0A6]` (тёмная тема) и `text-[#5F6368]` (светлая тема).
+3. **Экспорт настроек в `QC.Provider`**:
+   - Экспортирует ссылку `window.__agySettings` для интеграции Security Shield.
+4. **Синхронизация стрима при выходе из фона (ResumeSync)**:
+   - Внедряет метод `refreshTrajectories()` и глобальный хук `window.__agRefreshTrajectories` в диспетчер `vKa`, автоматически переподключая сокеты при возврате в приложение.
+5. **Разблокировка вкладки Developer ("Developer-only tools")**:
+   - Переключает базовый флаг `developerMode` в `main.js` (`enabled: !0`, `runtimeEnvironmentOverride: !0`, `featureFlagOverrides: !0`), открывая доступ к экрану **Feature Environment Override** (эмуляция OS, хоста, бинарника и типа пользователя) и **Custom Flags** в меню настроек.
 
 ---
 

@@ -18,7 +18,13 @@ var appConfig = {
   csrfToken: '',
   workspaceRoot: (CONFIG.workspaceRoot || (window.process && window.process.env && window.process.env.HOME) || '/storage/emulated/0'),
   activeCascadeId: null,
-  devMode: false
+  devMode: (function() {
+    try {
+      var s = localStorage.getItem('ag_dev_mode');
+      if (s !== null) return s === 'true';
+    } catch (_) {}
+    return false;
+  })()
 };
 
 try {
