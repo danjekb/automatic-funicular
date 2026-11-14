@@ -34,18 +34,23 @@ function parseArgs(argv) {
 }
 
 function writeJsonAtomic(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  const tmp = `${filePath}.${randomUUID()}.tmp`;
   try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o755 });
+    const tmp = `${filePath}.${randomUUID()}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', {
       encoding: 'utf8',
-      mode: 0o600,
-      flag: 'wx',
+      mode: 0o644,
+      flag: 'w',
     });
     fs.renameSync(tmp, filePath);
-  } finally {
+    try { fs.chmodSync(filePath, 0o644); } catch {}
+  } catch (err) {
     try {
-      if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+      fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + '\n', {
+        encoding: 'utf8',
+        mode: 0o644,
+      });
+      try { fs.chmodSync(filePath, 0o644); } catch {}
     } catch {}
   }
 }
@@ -105,14 +110,20 @@ async function main() {
     },
   });
 
-  writeJsonAtomic(stateFile, {
+  const statePayload = {
     version: 1,
     pid: process.pid,
     port: service.port,
     instance,
     token,
     managementUrl: `http://127.0.0.1:${service.port}/_addon/#token=${token}`,
-  });
+  };
+  writeJsonAtomic(stateFile, statePayload);
+  try {
+    const parentDir = path.dirname(canonicalDataDir);
+    const altStateDir = path.join(parentDir, 'antigravity', '.ide-proxy');
+    writeJsonAtomic(path.join(altStateDir, 'state.json'), statePayload);
+  } catch {}
 
   console.log(`[model_proxy] READY port=${service.port} pid=${process.pid}`);
 }

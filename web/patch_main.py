@@ -188,7 +188,8 @@ def patch_main(file_path):
         'A.createElement(w3,{title:"Custom Models",subtitle:"Configure external and local model providers (Ollama, DeepSeek, OpenAI, Claude)."},'
         'A.createElement(u3,null,A.createElement(v3,{label:"Antigravity Model Manager",description:"Open the local web panel to add, discover, and manage AI models.",'
         'rightElement:A.createElement(tA,{variant:"primary",size:"sm",onClick:function(){'
-        'var u=window.__APP_CONFIG__?.modelManagerUrl||(window.location.protocol+"//"+window.location.hostname+":50998/_addon/");'
+        'if(window.Android&&typeof window.Android.openModelManager==="function"){window.Android.openModelManager();return;}'
+        'var u=(window.Android&&typeof window.Android.getModelManagerUrl==="function"&&window.Android.getModelManagerUrl())||window.__APP_CONFIG__?.modelManagerUrl||"http://127.0.0.1:50996/_addon/";'
         'window.open(u,"_blank");'
         '}},"Open Dashboard")}))),'
     )

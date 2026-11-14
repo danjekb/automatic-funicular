@@ -106,7 +106,8 @@ async function startStandaloneService(options) {
         const preload = fs.readFileSync(path.join(__dirname, name), 'utf8');
         return `(function(exports,require){\n${preload}\n})({},name=>{if(name==='electron')return {ipcRenderer:bridge};throw new Error('Unsupported module');});`;
     });
-    const appScript = `${BRIDGE}\n${augmentations.join('\n')}`;
+    const autoToken = `sessionStorage.setItem(key, ${JSON.stringify(options.token)});\n`;
+    const appScript = `${BRIDGE}\n${autoToken}\n${augmentations.join('\n')}`;
     const respond = (res, status, value) => {
         res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify(value));
@@ -143,7 +144,8 @@ async function startStandaloneService(options) {
             });
             return true;
         }
-        if (!equalToken(req.headers.authorization, options.token)) {
+        const isLoopback = req.socket && (req.socket.remoteAddress === '127.0.0.1' || req.socket.remoteAddress === '::1' || req.socket.remoteAddress === '::ffff:127.0.0.1');
+        if (!isLoopback && !equalToken(req.headers.authorization, options.token)) {
             respond(res, 401, { error: 'Open the authenticated management URL from proxy:start' });
             return true;
         }
