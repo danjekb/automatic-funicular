@@ -423,14 +423,15 @@
   window.addEventListener("resize", function () { place(); });
 
   function ensureButton() {
-    var plus = document.querySelector(BOX + " button[aria-label='Add context']");
-    var footer = plus && plus.closest("[class*='input-footer']");
+    var box = document.querySelector(BOX) || document.querySelector("#antigravity\\.agentSidePanelInputBox");
+    var plus = document.querySelector(BOX + " button[aria-label='Add context']") || (box && box.querySelector("button[aria-label*='context'], button[aria-label*='Context'], button[aria-label*='kontekst'], button[aria-label*='Kontekst']"));
+    var footer = (plus && plus.closest("[class*='input-footer']")) || (box && (box.querySelector("[class*='input-footer']") || box.querySelector(".flex.w-full.items-center.justify-between")));
     if (!footer) {
-      if (pop && !document.querySelector(BOX)) close();
+      if (pop && !box) close();
       return;
     }
-    var group = footer.lastElementChild;
-    if (!group || group.contains(plus)) return;
+    var group = footer.querySelector(".shrink-0.flex.items-center") || footer.lastElementChild;
+    if (!group || (plus && group.contains(plus))) return;
     if (group.querySelector(".agy-shield-btn")) return;
 
     var b = document.createElement("button");
