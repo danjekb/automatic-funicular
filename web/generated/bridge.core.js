@@ -336,58 +336,90 @@ function installFetchRewrite() {
   // Probe local model proxy / gateway (port 50996 or 50997).
   // When active and healthy, redirect Cloud Code RPC endpoint via SetCloudCodeURL.
   function configureModelGateway() {
-    try {
-      var candidatePorts = [50996, 50997];
-      function tryPort(index) {
-        if (index >= candidatePorts.length) {
-          log('no local model proxy detected, keeping default cloud code endpoint');
-          return;
-        }
-        var gatewayPort = candidatePorts[index];
-        var healthUrl = 'http://127.0.0.1:' + gatewayPort + '/health';
-        var targetUrl = 'http://127.0.0.1:' + gatewayPort;
+    var candidatePorts = [50996, 50997];
+    var activeGatewayUrl = null;
+    var probeAttempts = 0;
+    var maxInitialProbes = 15;
 
-        var controller = (typeof AbortController === 'function') ? new AbortController() : null;
-        var timer = controller ? setTimeout(function () {
-          try { controller.abort(); } catch (e) {}
-        }, 1200) : null;
+    function checkPort(port, callback) {
+      var healthUrl = 'http://127.0.0.1:' + port + '/health';
+      var controller = (typeof AbortController === 'function') ? new AbortController() : null;
+      var timer = controller ? setTimeout(function () {
+        try { controller.abort(); } catch (e) {}
+      }, 1500) : null;
 
-        origFetch(healthUrl, {
-          method: 'GET',
-          signal: controller ? controller.signal : undefined
-        }).then(function (res) {
-          if (timer) clearTimeout(timer);
-          if (!res || !res.ok) {
-            tryPort(index + 1);
-            return;
-          }
-          var rpcUrl = appendCsrfQuery(coreBase() + '/exa.language_server_pb.LanguageServerService/SetCloudCodeURL');
-          var reqHeaders = new Headers({
-            'Content-Type': 'application/json',
-            'Connect-Protocol-Version': '1'
-          });
-          ensureCsrf(reqHeaders);
-          return fetchWithStartupRetry(rpcUrl, {
-            method: 'POST',
-            headers: reqHeaders,
-            body: JSON.stringify({ url: targetUrl })
-          }, 5).then(function (rpcRes) {
-            if (rpcRes && rpcRes.ok) {
-              log('model gateway verified and connected to ' + targetUrl);
-            }
-          });
-        }).catch(function () {
-          if (timer) clearTimeout(timer);
-          tryPort(index + 1);
-        });
-      }
-      tryPort(0);
-    } catch (e) {
-      warn('model gateway init', e);
+      origFetch(healthUrl, {
+        method: 'GET',
+        signal: controller ? controller.signal : undefined
+      }).then(function (res) {
+        if (timer) clearTimeout(timer);
+        callback(Boolean(res && res.ok));
+      }).catch(function () {
+        if (timer) clearTimeout(timer);
+        callback(false);
+      });
     }
+
+    function setRpcUrl(targetUrl, onSuccess) {
+      try {
+        var rpcUrl = appendCsrfQuery(coreBase() + '/exa.language_server_pb.LanguageServerService/SetCloudCodeURL');
+        var reqHeaders = new Headers({
+          'Content-Type': 'application/json',
+          'Connect-Protocol-Version': '1'
+        });
+        ensureCsrf(reqHeaders);
+        fetchWithStartupRetry(rpcUrl, {
+          method: 'POST',
+          headers: reqHeaders,
+          body: JSON.stringify({ url: targetUrl })
+        }, 5).then(function (rpcRes) {
+          if (rpcRes && rpcRes.ok && typeof onSuccess === 'function') {
+            onSuccess();
+          }
+        }).catch(function (err) {
+          warn('SetCloudCodeURL error', err);
+        });
+      } catch (e) {
+        warn('SetCloudCodeURL failure', e);
+      }
+    }
+
+    function probe(index) {
+      if (index >= candidatePorts.length) {
+        probeAttempts++;
+        if (probeAttempts < maxInitialProbes && !activeGatewayUrl) {
+          setTimeout(function () { probe(0); }, 2000);
+        } else if (!activeGatewayUrl) {
+          log('no local model proxy detected, keeping default cloud code endpoint');
+        }
+        return;
+      }
+
+      var port = candidatePorts[index];
+      checkPort(port, function (isHealthy) {
+        if (isHealthy) {
+          var targetUrl = 'http://127.0.0.1:' + port;
+          if (activeGatewayUrl !== targetUrl) {
+            setRpcUrl(targetUrl, function () {
+              activeGatewayUrl = targetUrl;
+              log('model gateway verified and connected to ' + targetUrl);
+            });
+          }
+        } else {
+          probe(index + 1);
+        }
+      });
+    }
+
+    probe(0);
+
+    // Periodic heartbeat to reconnect or switch if proxy restarts
+    setInterval(function () {
+      probe(0);
+    }, 20000);
   }
 
-  setTimeout(configureModelGateway, 1500);
+  setTimeout(configureModelGateway, 1000);
 }
 
 installFetchRewrite();

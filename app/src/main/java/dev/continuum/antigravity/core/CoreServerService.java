@@ -29,6 +29,9 @@ public final class CoreServerService extends Service {
     private dev.continuum.antigravity.gateway.SystemGatewayServer gatewayServer;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private volatile boolean destroyed;
+    private volatile boolean modelProxyEnabled;
+    private Process modelProxyProcess;
+    private Thread modelProxyThread;
 
     @Override
     public void onCreate() {
@@ -63,47 +66,84 @@ public final class CoreServerService extends Service {
         supervisor.start();
     }
 
+    private File findProxyEntry() {
+        File f1 = new File(getFilesDir(), "usr/lib/model_proxy/entry.js");
+        if (f1.isFile()) return f1;
+        File f2 = new File(getFilesDir(), "model_proxy/entry.js");
+        if (f2.isFile()) return f2;
+        return null;
+    }
+
+    private File findNodeExecutable() {
+        File nodeWrapper = new File(getFilesDir(), "runtime/bin/node");
+        if (nodeWrapper.canExecute()) return nodeWrapper;
+        File usrNode = new File(getFilesDir(), "usr/bin/node");
+        if (usrNode.canExecute()) return usrNode;
+        return null;
+    }
+
     private void startModelProxy() {
-        new Thread(() -> {
-            try {
-                File nodeBin = new File(getFilesDir(), "runtime/bin/node");
-                File usrNode = new File(getFilesDir(), "usr/bin/node");
-                File proxyEntry = new File(getFilesDir(), "usr/lib/model_proxy/entry.js");
-                // Wait for env extraction and package seeding if starting on a clean install
-                for (int i = 0; i < 60; i++) {
-                    if (!proxyEntry.isFile()) {
-                        proxyEntry = new File(getFilesDir(), "model_proxy/entry.js");
-                    }
-                    if ((nodeBin.canExecute() || usrNode.canExecute()) && proxyEntry.isFile()) {
+        modelProxyEnabled = true;
+        modelProxyThread = new Thread(() -> {
+            File prefixDir = new File(getFilesDir(), "usr");
+            File logsDir = new File(getFilesDir(), "logs");
+            logsDir.mkdirs();
+            File logFile = new File(logsDir, "model-proxy.log");
+            File dataDir = new File(getFilesDir(), ".gemini/antigravity-app");
+            dataDir.mkdirs();
+            File tmpDir = new File(getFilesDir(), "usr/tmp");
+            tmpDir.mkdirs();
+
+            // Wait for env extraction and package seeding if starting on a clean install
+            for (int i = 0; i < 60 && !destroyed && modelProxyEnabled; i++) {
+                if (findNodeExecutable() != null && findProxyEntry() != null) {
+                    break;
+                }
+                try {
+                    Thread.sleep(1200);
+                } catch (InterruptedException e) {
+                    return;
+                }
+            }
+
+            while (!destroyed && modelProxyEnabled) {
+                File nodeExe = findNodeExecutable();
+                File proxyEntry = findProxyEntry();
+                if (nodeExe == null || proxyEntry == null) {
+                    Log.w(TAG, "node or model_proxy not found, sleeping 5s before retry");
+                    try {
+                        Thread.sleep(5000);
+                    } catch (InterruptedException e) {
                         break;
                     }
-                    Thread.sleep(1200);
+                    continue;
                 }
-                File targetNode = nodeBin.canExecute() ? nodeBin : usrNode;
-                if (targetNode.canExecute() && proxyEntry.isFile()) {
+
+                try {
                     Log.i(TAG, "Starting local model adapter proxy on port 50996...");
-                    File logsDir = new File(getFilesDir(), "logs");
-                    logsDir.mkdirs();
-                    File logFile = new File(logsDir, "model-proxy.log");
-                    File dataDir = new File(getFilesDir(), ".gemini/antigravity-app");
-                    dataDir.mkdirs();
-                    File tmpDir = new File(getFilesDir(), "usr/tmp");
-                    tmpDir.mkdirs();
-                    File prefixDir = new File(getFilesDir(), "usr");
+                    File nodeWrapper = new File(getFilesDir(), "runtime/bin/node");
                     java.util.List<String> cmd = new java.util.ArrayList<>();
-                    if (nodeBin.canExecute()) {
+                    if (nodeWrapper.canExecute()) {
                         cmd.add("/system/bin/sh");
-                        cmd.add(nodeBin.getAbsolutePath());
+                        cmd.add(nodeWrapper.getAbsolutePath());
+                        cmd.add(proxyEntry.getAbsolutePath());
+                        cmd.add("--port");
+                        cmd.add("50996");
+                        cmd.add("--data-dir");
+                        cmd.add(dataDir.getAbsolutePath());
+                        cmd.add("--log-file");
+                        cmd.add(logFile.getAbsolutePath());
                     } else {
-                        cmd.add(usrNode.getAbsolutePath());
+                        File usrNode = new File(getFilesDir(), "usr/bin/node");
+                        cmd.add("/system/bin/sh");
+                        cmd.add("-c");
+                        cmd.add("export PREFIX=\"" + prefixDir.getAbsolutePath() + "\" && " +
+                                "export LD_LIBRARY_PATH=\"" + prefixDir.getAbsolutePath() + "/lib\" && " +
+                                "export PATH=\"" + prefixDir.getAbsolutePath() + "/bin:$PATH\" && " +
+                                "exec \"" + usrNode.getAbsolutePath() + "\" \"" + proxyEntry.getAbsolutePath() + "\" " +
+                                "--port 50996 --data-dir \"" + dataDir.getAbsolutePath() + "\" --log-file \"" + logFile.getAbsolutePath() + "\"");
                     }
-                    cmd.add(proxyEntry.getAbsolutePath());
-                    cmd.add("--port");
-                    cmd.add("50996");
-                    cmd.add("--data-dir");
-                    cmd.add(dataDir.getAbsolutePath());
-                    cmd.add("--log-file");
-                    cmd.add(logFile.getAbsolutePath());
+
                     ProcessBuilder pb = new ProcessBuilder(cmd);
                     pb.directory(getFilesDir());
                     pb.environment().put("PREFIX", prefixDir.getAbsolutePath());
@@ -121,14 +161,32 @@ public final class CoreServerService extends Service {
                     if (certPem.isFile()) {
                         pb.environment().put("SSL_CERT_FILE", certPem.getAbsolutePath());
                     }
-                    pb.start();
-                } else {
-                    Log.w(TAG, "node or model_proxy not found after wait period");
+
+                    Process p = pb.start();
+                    modelProxyProcess = p;
+
+                    int exitCode = p.waitFor();
+                    modelProxyProcess = null;
+
+                    if (!modelProxyEnabled || destroyed) {
+                        break;
+                    }
+
+                    Log.w(TAG, "Model proxy terminated with exit code " + exitCode + ". Restarting in 2s...");
+                    Thread.sleep(2000);
+                } catch (InterruptedException ie) {
+                    break;
+                } catch (Exception e) {
+                    Log.w(TAG, "Error in model proxy lifecycle: " + e.getMessage());
+                    try {
+                        Thread.sleep(3000);
+                    } catch (InterruptedException ignored) {
+                        break;
+                    }
                 }
-            } catch (Exception e) {
-                Log.w(TAG, "Failed to start model proxy: " + e.getMessage());
             }
-        }, "ModelProxyStarter").start();
+        }, "ModelProxySupervisor");
+        modelProxyThread.start();
     }
 
     private void startBackgroundDaemon() {
@@ -199,6 +257,16 @@ public final class CoreServerService extends Service {
     }
 
     private void stopModelProxy() {
+        modelProxyEnabled = false;
+        if (modelProxyThread != null) {
+            modelProxyThread.interrupt();
+        }
+        if (modelProxyProcess != null) {
+            try {
+                modelProxyProcess.destroy();
+            } catch (Exception ignored) {
+            }
+        }
         try {
             File stateFile = new File(getFilesDir(), ".gemini/antigravity-app/.ide-proxy/state.json");
             if (stateFile.isFile()) {
