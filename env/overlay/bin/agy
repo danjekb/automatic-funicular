@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""
+agy - Unified command-line interface for Continuum (Antigravity on Android).
+Provides a streamlined entry point for background daemons, notifications,
+model configuration, path normalization, and component upgrades.
+"""
+
+import sys
+import os
+import shutil
+import subprocess
+
+# Format: subcommand: (executable_name, interpreter_or_None, description)
+COMMAND_MAP = {
+    "daemon": ("agy-daemon", "python", "Control the background scheduler, watchers, and tasks"),
+    "notify": ("agy-notify", "bash", "Post or manage native Android status bar notifications"),
+    "models": ("agy-models", "python", "Manage external model adapters and API keys"),
+    "fix-paths": ("agy-fix-paths", "bash", "Normalize script shebangs and interpreter paths"),
+    "upgrade": ("agy-upgrade", "bash", "Upgrade Continuum runtime components"),
+}
+
+def print_help():
+    print("Continuum Unified CLI (agy)\n")
+    print("Usage:")
+    print("  agy <command> [arguments...]\n")
+    print("Available Commands:")
+    for cmd, (_, _, desc) in COMMAND_MAP.items():
+        print(f"  {cmd:<12} {desc}")
+    print("\nRun 'agy <command> --help' for details on a specific tool.")
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+        print_help()
+        return
+
+    sub = sys.argv[1]
+    sub_args = sys.argv[2:]
+
+    if sub in COMMAND_MAP:
+        executable, interp_type, _ = COMMAND_MAP[sub]
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        target = os.path.join(script_dir, executable)
+
+        if not os.path.isfile(target):
+            resolved = shutil.which(executable)
+            if resolved:
+                target = resolved
+
+        # On native Android, /usr/bin/env often does not exist.
+        # Explicitly invoke with python or bash interpreter to guarantee execution.
+        cmd = []
+        if interp_type == "python":
+            cmd = [sys.executable, target]
+        elif interp_type == "bash":
+            bash_bin = shutil.which("bash") or "/system/bin/sh"
+            cmd = [bash_bin, target]
+        else:
+            cmd = [target]
+
+        cmd.extend(sub_args)
+
+        try:
+            res = subprocess.run(cmd)
+            sys.exit(res.returncode)
+        except KeyboardInterrupt:
+            sys.exit(130)
+        except Exception as e:
+            print(f"[agy] Error executing '{executable}': {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print(f"[agy] Unknown command: '{sub}'.", file=sys.stderr)
+        print("Run 'agy --help' to see available commands.", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
