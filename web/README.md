@@ -139,6 +139,10 @@ web/
    - Внедряет метод `refreshTrajectories()` и глобальный хук `window.__agRefreshTrajectories` в диспетчер `vKa`, автоматически переподключая сокеты при возврате в приложение.
 5. **Разблокировка вкладки Developer ("Developer-only tools")**:
    - Переключает базовый флаг `developerMode` в `main.js` (`enabled: !0`, `runtimeEnvironmentOverride: !0`, `featureFlagOverrides: !0`), открывая доступ к экрану **Feature Environment Override** (эмуляция OS, хоста, бинарника и типа пользователя) и **Custom Flags** в меню настроек.
+6. **Разблокировка секции Labs и экспериментальных возможностей**:
+   - Активирует карточку **Labs** в настройках *General* с переключателями **Autonomous Mode**, **Inline Actions** и **Chief of Staff (Concierge Agent)**.
+   - Разблокирует меню режимов работы агента (*Modes*) с тумблером автономного выполнения в строке ввода промпта.
+   - Открывает встроенный просмотрщик **PDF Viewer**, вкладку проводника файлов **File Explorer Tab**, разделение экрана **Split View** (включая мобильный интерфейс) и ветвление диалогов **Conversation Forking**.
 
 ---
 

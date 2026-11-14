@@ -117,6 +117,70 @@ def patch_main(file_path):
         modified = True
         print("[web-patch] Unlocked developerMode (Feature Environment Override & Custom Flags)")
 
+    # 6. Unlock Labs & Experimental Capabilities
+    # 6a. Labs section in General Settings
+    labs_target = 'labs:{feature:!1,applyFirst:[{runtimeGating:{binary:["hub"],userCohort:["google"]},feature:!0}]}'
+    labs_repl = 'labs:{feature:!0}'
+    if labs_target in content:
+        content = content.replace(labs_target, labs_repl, 1)
+        modified = True
+        print("[web-patch] Unlocked Labs experimental settings section")
+
+    # 6b. Autonomous Mode
+    auto_target = 'autonomousMode:{feature:!1,\napplyAll:[{runtimeGating:{binary:["hub"],userCohort:["google"],customFlag:Zz.autonomousMode.customFlag},feature:!0}]}'
+    auto_repl = 'autonomousMode:{feature:!0}'
+    if auto_target in content:
+        content = content.replace(auto_target, auto_repl, 1)
+        modified = True
+        print("[web-patch] Unlocked Autonomous Mode")
+
+    # 6c. Inline Actions
+    inline_target = 'inlineActions:{feature:!1,applyAll:[{runtimeGating:{binary:["hub"],userCohort:["google"],customFlag:Zz.inlineActions.customFlag},feature:!0}]}'
+    inline_repl = 'inlineActions:{feature:!0}'
+    if inline_target in content:
+        content = content.replace(inline_target, inline_repl, 1)
+        modified = True
+        print("[web-patch] Unlocked Inline Actions")
+
+    # 6d. Concierge Agent (Chief of Staff) visibility in Labs
+    concierge_vis = 'visibilityCustomFlag:"enable-concierge-agent"'
+    if concierge_vis in content:
+        content = content.replace(concierge_vis, 'visibilityCustomFlag:void 0', 1)
+        modified = True
+        print("[web-patch] Unlocked Chief of Staff (Concierge Agent) in Labs")
+
+    # 6e. File Explorer Tab in Workspace Sidebar
+    file_exp_target = 'fileExplorerTab:{feature:{isEnabled:!1},applyFirst:[{runtimeGating:{host:[Qi.Extension]},feature:{isEnabled:!1}}],applyAll:[{runtimeGating:{customFlag:"enable-file-explorer-tab"},feature:{isEnabled:!0}}]}'
+    file_exp_repl = 'fileExplorerTab:{feature:{isEnabled:!0}}'
+    if file_exp_target in content:
+        content = content.replace(file_exp_target, file_exp_repl, 1)
+        modified = True
+        print("[web-patch] Unlocked File Explorer tab")
+
+    # 6f. Built-in PDF Viewer
+    pdf_target = 'pdfViewer:{feature:!1,applyAll:[{runtimeGating:{customFlag:"enable-pdf-viewer"},feature:!0}]}'
+    pdf_repl = 'pdfViewer:{feature:!0}'
+    if pdf_target in content:
+        content = content.replace(pdf_target, pdf_repl, 1)
+        modified = True
+        print("[web-patch] Unlocked PDF Viewer")
+
+    # 6g. Split View
+    split_target = 'splitView:{feature:{enabled:!1},applyAll:[{runtimeGating:{customFlag:"enable-split-view"},feature:{enabled:!0}},{runtimeGating:{isDevMode:!0},feature:{enabled:!0}},{runtimeGating:{host:[Qi.Web.Mobile]},feature:{enabled:!1}}]}'
+    split_repl = 'splitView:{feature:{enabled:!0}}'
+    if split_target in content:
+        content = content.replace(split_target, split_repl, 1)
+        modified = True
+        print("[web-patch] Unlocked Split View")
+
+    # 6h. Conversation Forking & Historical Step Fork
+    fork_target = '...(L9()?["enable-conversation-forking"]:[]),'
+    fork_repl = '...["enable-conversation-forking","enable-fork-at-historical-step"],'
+    if fork_target in content:
+        content = content.replace(fork_target, fork_repl, 1)
+        modified = True
+        print("[web-patch] Unlocked Conversation Forking")
+
     if modified:
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
