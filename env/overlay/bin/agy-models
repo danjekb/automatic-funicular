@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""
+agy-models - Antigravity Model Manager CLI (supports DeepSeek, OpenAI, Claude, fjut, and local models)
+
+Usage:
+  agy-models list                     # List all providers and models
+  agy-models status                   # Check local model adapter gateway status
+  agy-models set-key <provider> <key> # Set API key (e.g. agy-models set-key deepseek sk-xxxx)
+  agy-models set-url <provider> <url> # Set base API URL (e.g. agy-models set-url custom http://127.0.0.1:11434/v1)
+  agy-models enable <provider>        # Enable a provider
+  agy-models disable <provider>       # Disable a provider
+"""
+
+import sys
+import os
+import json
+import urllib.request
+import urllib.error
+
+HOME = os.environ.get("HOME", os.path.expanduser("~"))
+CONFIG_PATH = os.path.join(HOME, ".gemini", "antigravity-app", "custom_models.json")
+if not os.path.isfile(CONFIG_PATH) and os.path.isfile(os.path.join(HOME, ".gemini", "antigravity", "custom_models.json")):
+    CONFIG_PATH = os.path.join(HOME, ".gemini", "antigravity", "custom_models.json")
+GATEWAY_URL = "http://127.0.0.1:50996"
+
+def load_config():
+    if not os.path.isfile(CONFIG_PATH):
+        print(f"[!] Configuration file not found. Please start gateway once or initialize.")
+        sys.exit(1)
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[ERROR] Failed to read configuration: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def save_config(cfg):
+    try:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        print(f"[OK] Configuration successfully saved to: {CONFIG_PATH}")
+    except Exception as e:
+        print(f"[ERROR] Failed to save configuration: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def cmd_list():
+    cfg = load_config()
+    print("\n================== Antigravity Model Manager ==================")
+    models = cfg.get("models", [])
+    if models:
+        print(f"Configured Models ({len(models)}):")
+        for m in models:
+            status = "🟢 Enabled " if m.get("enabled", True) else "⚪ Disabled"
+            enc = " [Encrypted]" if m.get("encrypted") else ""
+            print(f"  {status} {m.get('displayName', m.get('name'))}")
+            print(f"     Provider: {m.get('provider')} | API: {m.get('apiUrl')}{enc}")
+    providers = cfg.get("providers", {})
+    if providers:
+        print("\nProviders:")
+        for p_id, p_info in providers.items():
+            status = "🟢 Enabled " if p_info.get("enabled", False) else "⚪ Disabled"
+            has_key = "🔑 Key configured" if p_info.get("api_key") else "⚠️ Key missing"
+            print(f"  [{status}] {p_info.get('name', p_id)} ({p_id}) - {has_key}")
+    print("\n===============================================================\n")
+
+def cmd_status():
+    print(f"[*] Probing local model adapter gateway ({GATEWAY_URL})...")
+    try:
+        with urllib.request.urlopen(f"{GATEWAY_URL}/health", timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            print("🟢 Gateway is running!")
+            print(f"  Listening port: {data.get('port', 50996)}")
+            print(f"  Uptime: {int(data.get('uptime', 0))}s")
+        if os.path.isfile(CONFIG_PATH):
+            try:
+                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    models = cfg.get("models", [])
+                    print(f"  Active models ({len(models)}):")
+                    for m in models:
+                        status = "🟢" if m.get("enabled", True) else "⚪"
+                        print(f"    {status} {m.get('displayName', m.get('name'))}")
+            except Exception:
+                pass
+        state_file = os.path.join(HOME, ".gemini", "antigravity-app", ".ide-proxy", "state.json")
+        if os.path.isfile(state_file):
+            with open(state_file, "r", encoding="utf-8") as f:
+                sdata = json.load(f)
+                murl = sdata.get("managementUrl")
+                if murl:
+                    print(f"\n  Web Panel Dashboard URL:\n  {murl}\n")
+    except Exception as e:
+        print(f"🔴 Gateway not running or unreachable: {e}")
+        print("  Note: Ensure Antigravity core service or model adapter daemon is active.")
+
+def cmd_set_key(provider_id, key):
+    cfg = load_config()
+    providers = cfg.get("providers", {})
+    if provider_id not in providers:
+        print(f"[ERROR] Unknown provider: '{provider_id}'. Available: {', '.join(providers.keys())}", file=sys.stderr)
+        sys.exit(1)
+    providers[provider_id]["api_key"] = key.strip()
+    providers[provider_id]["enabled"] = True
+    save_config(cfg)
+    masked_key = key[:6] + "..." + key[-4:] if len(key) > 10 else "***"
+    print(f"[OK] Configured API key ({masked_key}) and enabled provider '{provider_id}'!")
+
+def cmd_set_url(provider_id, url):
+    cfg = load_config()
+    providers = cfg.get("providers", {})
+    if provider_id not in providers:
+        print(f"[ERROR] Unknown provider: '{provider_id}'. Available: {', '.join(providers.keys())}", file=sys.stderr)
+        sys.exit(1)
+    providers[provider_id]["base_url"] = url.strip()
+    save_config(cfg)
+    print(f"[OK] Updated Base URL for provider '{provider_id}' to: {url.strip()}")
+
+def cmd_toggle(provider_id, enable):
+    cfg = load_config()
+    providers = cfg.get("providers", {})
+    if provider_id not in providers:
+        print(f"[ERROR] Unknown provider: '{provider_id}'", file=sys.stderr)
+        sys.exit(1)
+    providers[provider_id]["enabled"] = enable
+    save_config(cfg)
+    action = "Enabled" if enable else "Disabled"
+    print(f"[OK] Provider '{provider_id}' is now {action}!")
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+        print(__doc__)
+        return
+
+    cmd = sys.argv[1].lower()
+    if cmd == "list":
+        cmd_list()
+    elif cmd == "status":
+        cmd_status()
+    elif cmd == "set-key":
+        if len(sys.argv) < 4:
+            print("[ERROR] Usage: agy-models set-key <provider_id> <api_key>", file=sys.stderr)
+            sys.exit(1)
+        cmd_set_key(sys.argv[2], sys.argv[3])
+    elif cmd == "set-url":
+        if len(sys.argv) < 4:
+            print("[ERROR] Usage: agy-models set-url <provider_id> <base_url>", file=sys.stderr)
+            sys.exit(1)
+        cmd_set_url(sys.argv[2], sys.argv[3])
+    elif cmd == "enable":
+        if len(sys.argv) < 3:
+            print("[ERROR] Usage: agy-models enable <provider_id>", file=sys.stderr)
+            sys.exit(1)
+        cmd_toggle(sys.argv[2], True)
+    elif cmd == "disable":
+        if len(sys.argv) < 3:
+            print("[ERROR] Usage: agy-models disable <provider_id>", file=sys.stderr)
+            sys.exit(1)
+        cmd_toggle(sys.argv[2], False)
+    else:
+        print(f"[ERROR] Unknown subcommand: '{cmd}'. Run agy-models --help for usage.", file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

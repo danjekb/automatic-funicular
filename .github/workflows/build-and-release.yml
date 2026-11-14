@@ -1,0 +1,184 @@
+name: Build Continuum APK
+
+# Runs the repository's test suites, builds a signed ARM64 APK, verifies it and
+# publishes a versioned GitHub Release that the in-app updater reads.
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - dev
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v3.0.0); leave empty to build only'
+        required: false
+        default: ''
+      draft:
+        description: 'Create a draft release'
+        type: boolean
+        default: true
+      prerelease:
+        description: 'Mark as pre-release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: ACP adapter protocol tests
+        run: bash tools/acp_test/run.sh
+      - name: Engine compatibility layer tests
+        run: python3 -m unittest discover -s modules/engine/tests -p 'test_*.py' -v
+      - name: Binary patch pipeline tests
+        run: python3 -m unittest discover -s modules/patches/tests -p 'test_*.py' -v
+      - name: Core unpack/bundle tests
+        run: bash modules/core/tests/run_all.sh
+      - name: Environment overlay tests
+        run: bash modules/env/tests/run_all.sh
+      - name: I/O shim tests
+        run: bash modules/io/tests/run_all.sh
+      - name: Web bundle build and syntax checks
+        run: bash web/tests/selftest.sh
+
+  build:
+    name: Build and verify ARM64 APK
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Android build tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends aapt zipalign apksigner file zip unzip
+          command -v aapt && aapt version || true
+          command -v zipalign || true
+          command -v apksigner || true
+
+      - name: Ensure committed build inputs
+        run: |
+          set -euo pipefail
+          test -f tools/android.jar || {
+            echo "::error::tools/android.jar missing - commit it or restore it before building"; exit 1; }
+          test -f tools/r8.jar || {
+            echo "::error::tools/r8.jar missing - commit it or restore it before building"; exit 1; }
+          test -f modules/core/pristine/language_server.tar.gz || {
+            echo "::error::pristine engine archive missing"; exit 1; }
+
+      - name: Restore the fork signing key
+        id: key
+        env:
+          KEYSTORE_B64: ${{ secrets.CONTINUUM_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.CONTINUUM_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.CONTINUUM_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.CONTINUUM_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64}" ]; then
+            if [ "${{ github.event_name }}" = "pull_request" ] || [ -n "${{ github.event.inputs.tag_name }}" ] || [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+              echo "::error::CONTINUUM_KEYSTORE_BASE64 is not configured; release builds must be signed with the fork key."
+              exit 1
+            fi
+            echo "::warning::No release key configured - building a debug-signed test APK (not for release)."
+            echo "dev_mode=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "dev_mode=" >> "$GITHUB_OUTPUT"
+          mkdir -p keys
+          printf '%s' "${KEYSTORE_B64}" | base64 --decode > keys/continuum-release.jks
+          cat > keys/keystore.properties <<EOF
+          storeFile=keys/continuum-release.jks
+          storePassword=${KEYSTORE_PASSWORD}
+          keyAlias=${KEY_ALIAS:-continuum}
+          keyPassword=${KEY_PASSWORD:-${KEYSTORE_PASSWORD}}
+          EOF
+          echo "[CI] release key restored"
+
+      - name: Build APK
+        env:
+          ALLOW_DEBUG_SIGNING: ${{ steps.key.outputs.dev_mode }}
+        run: bash build.sh
+
+      - name: Verify package, version and ARM64 payload
+        # Key-less builds keep the release package id and stay non-debuggable;
+        # only the signing certificate is the public AOSP debug key.
+        run: bash tools/verify_apk.sh dist/continuum.apk
+
+      - name: Cross-check release tag against app version
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag_name != ''
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag_name || github.ref_name }}"
+          TAG_VERSION="${TAG#v}"
+          CONFIG_VERSION="$(grep '^APP_VERSION_NAME=' config/app.env | cut -d= -f2)"
+          if [ "$TAG_VERSION" != "$CONFIG_VERSION" ]; then
+            echo "::error::tag $TAG does not match config/app.env APP_VERSION_NAME=$CONFIG_VERSION"
+            exit 1
+          fi
+          echo "tag and app version agree: $TAG_VERSION"
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum continuum.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuum-apk
+          path: |
+            dist/continuum.apk
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag_name != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          name: ${{ format('Continuum {0}', github.event.inputs.tag_name || github.ref_name) }}
+          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+          make_latest: true
+          files: |
+            dist/continuum.apk
+            dist/SHA256SUMS.txt
+          body_path: RELEASE_NOTES.md
