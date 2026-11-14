@@ -1,109 +1,109 @@
 # Antigravity Core Module (`modules/core`)
 
-> Базовый модуль дистрибуции ядра Antigravity v2: распаковка, валидация ELF/ABI AArch64, поставка glibc-окружения, шимов и криптографическая сборка runtime-директории.
+> Foundational distribution module for the Antigravity v2 core: unpacking, AArch64 ELF/ABI validation, glibc environment provisioning, system shims, and cryptographic runtime directory assembly.
 
 ---
 
-## 1. Назначение и зона ответственности
+## 1. Purpose and Responsibilities
 
-Модуль `modules/core` является фундаментом рантайма Antigravity v2 на платформе Android (ARM64 / AArch64). Он поставляет исходный бинарник language server, системные библиотеки glibc, сертификаты, конфигурации и предоставляет инструменты для:
+The `modules/core` module serves as the runtime foundation for Antigravity v2 on the Android platform (ARM64 / AArch64). It delivers the upstream language server binary, glibc shared libraries, certificates, configurations, and provides tooling for:
 
-1. **Распаковки и извлечения (`unpack/`):** Детектирование формата архива (tar.gz / сырой ELF) и извлечение `language_server` с настройкой POSIX-прав.
-2. **Валидации бинарников (`validate/`):** Контроль SHA-256 чексумм, валидация 64-bit Little-Endian структуры ELF, целевой архитектуры AArch64 (EM=183) и формата (ET_DYN/PIE).
-3. **Криптографического манифестирования (`manifest/`):** Потоковое вычисление SHA-256 (чанками по 1 МБ), генерация `manifest.json` и строгая верификация целостности файлов.
-4. **Формирования runtime-бандла (`bundle/`):** Сборка изолированной runtime-директории (`bin/`, `lib/`, `certs/`, `seed/`) для потребителей (`modules/runner`, `modules/builder`).
-5. **Системных шимов (`shims/`):** Эмуляция утилит окружения Linux (`xdg-open`, браузерные вызовы, Shizuku `rish`).
+1. **Unpacking and Extraction (`unpack/`):** Detecting archive formats (tar.gz / raw ELF) and extracting `language_server` with proper POSIX permissions.
+2. **Binary Validation (`validate/`):** Verifying SHA-256 checksums, validating 64-bit Little-Endian ELF headers, confirming AArch64 target architecture (EM=183), and checking binary types (ET_DYN/PIE).
+3. **Cryptographic Manifesting (`manifest/`):** Streaming SHA-256 hashing (1 MB chunks), generating `manifest.json`, and strictly validating file integrity.
+4. **Runtime Bundle Assembly (`bundle/`):** Building an isolated runtime directory (`bin/`, `lib/`, `certs/`, `seed/`) for downstream consumers (`modules/runner`, `modules/builder`).
+5. **System Shims (`shims/`):** Emulating Linux environment utilities (`xdg-open`, browser dispatchers, Shizuku `rish`).
 
 ---
 
-## 2. Структура каталогов и файлов
+## 2. Directory and File Structure
 
 ```
 modules/core/
-├── spec/                       # Декларативные спецификации ядра
-│   ├── version.env             # Переменные версии, тег сборки, имя загрузчика
-│   ├── checksums.json          # Эталонные SHA-256 и размеры архива/бинарника
-│   ├── glibc_deps.list         # Список требуемых glibc .so библиотек
-│   └── shims.list              # Список устанавливаемых исполняемых шимов
-├── pristine/                   # Оригинальный неизмененный архив ядра
+├── spec/                       # Declarative core specifications
+│   ├── version.env             # Version variables, build tag, loader filename
+│   ├── checksums.json          # Reference SHA-256 hashes and archive/binary sizes
+│   ├── glibc_deps.list         # Required glibc .so library dependencies
+│   └── shims.list              # Executable shims to install
+├── pristine/                   # Original unaltered core archive
 │   └── language_server.tar.gz  # Pristine aarch64 language_server (~181 MB unpacked)
-├── unpack/                     # Модули распаковки и прав доступа
-│   ├── archive_detector.py     # Определение формата (tar_gz, elf, unknown)
-│   ├── extractor.py            # Извлечение core-бинарника из tar.gz / raw ELF
-│   └── permissions.py          # Установка POSIX-прав (+x / +r)
-├── validate/                   # Валидаторы ELF и контрольных сумм
-│   ├── elf_header.py           # Проверка магии \x7fELF, EI_CLASS (64-bit), EI_DATA (LE)
-│   ├── elf_arch.py             # Проверка e_machine == EM_AARCH64 (183)
-│   ├── elf_compat.py           # Проверка e_type (ET_EXEC / ET_DYN)
-│   ├── checksum_checker.py     # Потоковая сверка SHA-256 файлов
-│   └── verify_pipeline.py      # Сквозной валидационный E2E-пайплайн (5 этапов)
-├── manifest/                   # Генератор и верификатор манифеста
-│   ├── file_hasher.py          # Потоковый расчет SHA-256 (1MB chunks)
-│   ├── manifest_builder.py     # Сканирование директории и сборка manifest.json
-│   └── manifest_verifier.py    # Проверка целостности директории по manifest.json
-├── bundle/                     # Сборка финального рантайма
-│   ├── layout.py               # Инициализация структуры директорий (bin, lib, certs, seed, etc)
-│   ├── pack_binaries.py        # Упаковка language_server, загрузчика и шимов (симлинки/делегаторы) в bin/
-│   ├── pack_libraries.py       # Копирование glibc библиотек в lib/ и сетевых конфигов в etc/
-│   ├── pack_certs.py           # Копирование SSL-сертификатов в certs/
-│   ├── pack_seed.py            # Копирование предзаполненного состояния в seed/
-│   └── assemble.py             # CLI и Python оркестратор полной сборки рантайма
-├── glibc/                      # Набор glibc библиотек под aarch64
-│   ├── ld-linux-aarch64.so.1   # Динамический компоновщик (интерпретатор ELF)
-│   ├── libc.so.6, libm.so.6... # Системные библиотеки glibc
-│   ├── liblse_compat.so        # Эмулятор атомарных инструкций LSE для старых CPU
-│   └── etc/                    # Конфигурационные файлы (hosts, nsswitch, resolv)
-├── certs/                      # Сертификаты безопасности
-│   └── ca-certificates.crt     # Системное SSL-хранилище CA
-├── seed/                       # Начальное состояние и инструкции
-│   ├── AGENTS.md               # Системный промпт и правила окружения
-│   └── *.pbtxt                 # Начальные protobuf-состояния онбординга
-├── shims/                      # Системные и браузерные заглушки
-│   ├── browser/                # xdg-open и браузерные делегаторы (chrome, open, etc.)
-│   ├── privilege/              # rish.sh (интерфейс к Shizuku ADB-оболочке)
-│   └── system/                 # open_helper.sh, xdg_open.sh (URL-диспетчер)
-└── tests/                      # Модульные тесты
-    ├── test_extractor.py       # Тесты распаковки и archive_detector
-    ├── test_elf_validator.py   # Тесты ELF-заголовков и архитектуры
-    ├── test_manifest.py        # Тесты генерации и проверки манифеста
-    ├── test_bundle.py          # Тесты layout, etc-конфигов и сборки через assemble.py
-    ├── test_shims.py           # Тесты парсинга URL в xdg-open и браузерных делегаторов
-    └── run_all.sh              # Скрипт синтаксической проверки и запуска тестов
+├── unpack/                     # Extraction and file permissions modules
+│   ├── archive_detector.py     # Format detector (tar_gz, elf, unknown)
+│   ├── extractor.py            # Extracts core binary from tar.gz / raw ELF
+│   └── permissions.py          # Configures POSIX permissions (+x / +r)
+├── validate/                   # ELF and checksum validators
+│   ├── elf_header.py           # Validates \x7fELF magic, EI_CLASS (64-bit), EI_DATA (LE)
+│   ├── elf_arch.py             # Validates e_machine == EM_AARCH64 (183)
+│   ├── elf_compat.py           # Validates e_type (ET_EXEC / ET_DYN)
+│   ├── checksum_checker.py     # Streaming SHA-256 verification against baselines
+│   └── verify_pipeline.py      # End-to-end 5-stage validation pipeline
+├── manifest/                   # Manifest generator and validator
+│   ├── file_hasher.py          # Streaming SHA-256 calculation (1 MB buffer)
+│   ├── manifest_builder.py     # Scans directory and compiles manifest.json
+│   └── manifest_verifier.py    # Verifies directory integrity against manifest.json
+├── bundle/                     # Final runtime packager
+│   ├── layout.py               # Initializes directory layout (bin, lib, certs, seed, etc.)
+│   ├── pack_binaries.py        # Packages language_server, loader, and shims into bin/
+│   ├── pack_libraries.py       # Copies glibc libraries to lib/ and network configs to etc/
+│   ├── pack_certs.py           # Copies SSL CA certificates to certs/
+│   ├── pack_seed.py            # Copies initial seed state files to seed/
+│   └── assemble.py             # CLI and Python orchestrator for full runtime assembly
+├── glibc/                      # AArch64 glibc library distribution
+│   ├── ld-linux-aarch64.so.1   # Dynamic linker (ELF interpreter)
+│   ├── libc.so.6, libm.so.6... # Glibc system libraries
+│   ├── liblse_compat.so        # LSE atomic instruction emulator for older CPUs
+│   └── etc/                    # Configuration files (hosts, nsswitch, resolv)
+├── certs/                      # Security certificates
+│   └── ca-certificates.crt     # System SSL CA certificate bundle
+├── seed/                       # Initial configuration and instructions
+│   ├── AGENTS.md               # System prompt and environment rules
+│   └── *.pbtxt                 # Initial onboarding protobuf state files
+├── shims/                      # System and browser stubs
+│   ├── browser/                # xdg-open and browser dispatchers (chrome, open, etc.)
+│   ├── privilege/              # rish.sh (interface to Shizuku ADB shell)
+│   └── system/                 # open_helper.sh, xdg_open.sh (URL dispatcher)
+└── tests/                      # Automated test suite
+    ├── test_extractor.py       # Tests for extraction and archive_detector
+    ├── test_elf_validator.py   # Tests for ELF headers and target architecture
+    ├── test_manifest.py        # Tests for manifest generation and corruption detection
+    ├── test_bundle.py          # Tests for layout, etc-configs, and assemble.py
+    ├── test_shims.py           # Tests for URL parsing in xdg-open and browser shims
+    └── run_all.sh              # Syntax check and test runner script
 ```
 
 ---
 
-## 3. Интерфейсы компонентов (API & CLI)
+## 3. Component Interfaces (API & CLI)
 
-### 3.1. Распаковка (`unpack/`)
+### 3.1. Unpacking (`unpack/`)
 
 - **`extractor.extract_core(src_path: str, dest_path: str, binary_name: str = "language_server") -> bool`**
-  - Извлекает исполняемый файл `binary_name` из `tar.gz` или копирует сырой `ELF`.
+  - Extracts the `binary_name` executable from `tar.gz` or copies a raw `ELF`.
   - CLI: `python3 extractor.py <source_path> <dest_binary_path> [binary_name]`
 
 - **`archive_detector.detect_type(file_path: str) -> str`**
-  - Возвращает: `"tar_gz"`, `"elf"`, `"unknown"`, `"not_found"`.
+  - Returns: `"tar_gz"`, `"elf"`, `"unknown"`, `"not_found"`.
   - CLI: `python3 archive_detector.py <file_path>`
 
 - **`permissions.make_executable(file_path: str) -> None`**
-  - Добавляет флаги `r-xr-xr-x` к файлу.
+  - Applies `r-xr-xr-x` permissions to the file.
   - CLI: `python3 permissions.py [--exec|--read] <path>`
 
-### 3.2. Валидация (`validate/`)
+### 3.2. Validation (`validate/`)
 
 - **`elf_header.validate_elf_header(file_path: str) -> bool`**
-  - Проверяет сигнатуру `\x7fELF`, 64-bit (`EI_CLASS=2`), Little-Endian (`EI_DATA=1`).
+  - Validates `\x7fELF` magic, 64-bit (`EI_CLASS=2`), and Little-Endian (`EI_DATA=1`).
 - **`elf_arch.validate_aarch64(file_path: str) -> bool`**
-  - Проверяет `e_machine == 183` (ARM64/AArch64).
+  - Verifies `e_machine == 183` (ARM64/AArch64).
 - **`elf_compat.validate_executable_type(file_path: str) -> str`**
-  - Возвращает `"ET_DYN"` (PIE/SO) или `"ET_EXEC"`.
+  - Returns `"ET_DYN"` (PIE/SO) or `"ET_EXEC"`.
 - **`checksum_checker.verify_checksum(file_path: str, expected_hash: str) -> bool`**
-  - Вычисляет SHA-256 потоком (буфер 1 МБ) и сравнивает с эталоном.
+  - Computes streaming SHA-256 (1 MB buffer) and validates against reference hash.
 
-### 3.3. Манифест (`manifest/`)
+### 3.3. Manifest (`manifest/`)
 
 - **`manifest_builder.build_manifest(runtime_dir: str, out_file: str = None) -> dict`**
-  - Рекурсивно сканирует `runtime_dir` (исключая сам `manifest.json`), рассчитывает SHA-256 каждого файла и записывает JSON со структурой:
+  - Recursively scans `runtime_dir` (excluding `manifest.json` itself), computes SHA-256 for each file, and produces structured JSON:
     ```json
     {
       "schema": 1,
@@ -117,19 +117,19 @@ modules/core/
   - CLI: `python3 manifest_builder.py <runtime_dir> [output_manifest_path]`
 
 - **`manifest_verifier.verify_manifest(manifest_path: str, target_dir: str) -> bool`**
-  - Проверяет наличие и соответствие контрольных сумм всех файлов, описанных в манифесте.
+  - Validates existence and SHA-256 checksum matching for all files declared in the manifest.
   - CLI: `python3 manifest_verifier.py <manifest_json_path> <target_dir>`
 
-### 3.4. Сборка бандла (`bundle/`)
+### 3.4. Bundle Assembly (`bundle/`)
 
 - **`assemble.assemble_runtime(core_bin_path: str, module_root: str, out_dir: str, dry_run: bool = False) -> dict`**
-  - Оркестратор сборки рантайма:
-    1. Инициализирует каталоги (`layout.py`), включая `bin`, `lib`, `certs`, `seed`, `etc`.
-    2. Копирует ядро как `bin/liblanguage_server.so`, загрузчик как `bin/libloader.so` и `bin/ld-linux-aarch64.so.1`, шимы (`pack_binaries.py`). Браузерные утилиты связываются симлинками или компактными ссылками на `xdg-open`.
-    3. Копирует shared libraries в `lib/`, а также сетевые и DNS-конфигурации (`hosts`, `resolv.conf`, `nsswitch.conf`) из `glibc/etc` в `etc/` (`pack_libraries.py`), избегая дублирования копирования загрузчика.
-    4. Копирует сертификаты в `certs/` (`pack_certs.py`).
-    5. Копирует seed-файлы в `seed/` (`pack_seed.py`).
-    6. Формирует `manifest.json` (`manifest_builder.py`).
+  - Orchestrates runtime assembly:
+    1. Initializes directories (`layout.py`), including `bin`, `lib`, `certs`, `seed`, and `etc`.
+    2. Copies the core as `bin/liblanguage_server.so`, loader as `bin/libloader.so` and `bin/ld-linux-aarch64.so.1`, and installs shims (`pack_binaries.py`). Browser dispatchers are symlinked or linked as compact wrappers pointing to `xdg-open`.
+    3. Copies shared libraries into `lib/`, and network/DNS configurations (`hosts`, `resolv.conf`, `nsswitch.conf`) from `glibc/etc` to `etc/` (`pack_libraries.py`), avoiding duplicate loader copies.
+    4. Copies root certificates to `certs/` (`pack_certs.py`).
+    5. Copies seed state files to `seed/` (`pack_seed.py`).
+    6. Generates `manifest.json` (`manifest_builder.py`).
   - CLI:
     ```bash
     python3 modules/core/bundle/assemble.py \
@@ -140,37 +140,37 @@ modules/core/
 
 ---
 
-## 4. Структура сформированного Runtime (`assets/runtime`)
+## 4. Structure of Assembled Runtime (`assets/runtime`)
 
-После сборки модуль формирует директорию со следующей топологией:
+Upon completion, the module produces a runtime directory with the following layout:
 
-| Каталог | Содержимое | Назначение |
+| Directory | Contents | Purpose |
 | :--- | :--- | :--- |
-| `bin/` | `liblanguage_server.so`, `libloader.so`, `ld-linux-aarch64.so.1`, `xdg-open`, `chrome`, `rish`... | Исполняемые бинарники, загрузчик glibc и shell-шимы |
-| `lib/` | `libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`, `liblse_compat.so`, `ld-linux-aarch64.so.1` | Зависимости glibc и LSE-атомиков под AArch64 |
-| `etc/` | `hosts`, `resolv.conf`, `nsswitch.conf` | Сетевые и DNS-конфигурации для работы сетевого стека glibc |
-| `certs/` | `ca-certificates.crt` | Корневые SSL/TLS сертификаты для Go TLS рантайма |
-| `seed/` | `AGENTS.md`, `antigravity_state.pbtxt`, `jetski_state.pbtxt` | Пресеты онбординга, конфигурации агента и системные правила |
-| `/` | `manifest.json` | Криптографический реестр целостности файлов |
+| `bin/` | `liblanguage_server.so`, `libloader.so`, `ld-linux-aarch64.so.1`, `xdg-open`, `chrome`, `rish`... | Executable binaries, Glibc dynamic loader, and shell shims |
+| `lib/` | `libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`, `liblse_compat.so`, `ld-linux-aarch64.so.1` | Glibc dependencies and AArch64 LSE atomic emulation |
+| `etc/` | `hosts`, `resolv.conf`, `nsswitch.conf` | Network and DNS configuration files required by Glibc resolver |
+| `certs/` | `ca-certificates.crt` | Root SSL/TLS certificates for Go TLS runtime |
+| `seed/` | `AGENTS.md`, `antigravity_state.pbtxt`, `jetski_state.pbtxt` | Onboarding presets, agent configuration, and system instructions |
+| `/` | `manifest.json` | Cryptographic integrity registry for all runtime files |
 
 ---
 
-## 5. Тестирование и валидация
+## 5. Testing and Validation
 
-### Полный запуск модульных тестов
+### Full Unit Test Suite
 ```bash
 bash modules/core/tests/run_all.sh
 ```
-Включает:
-1. Синтаксическую компиляцию Python (`compileall`) и проверку shell-скриптов (`bash -n`).
-2. Unit-тесты распаковки (`test_extractor.py`).
-3. Unit-тесты заголовков ELF и архитектуры (`test_elf_validator.py`).
-4. Unit-тесты манифеста и обнаружения повреждений (`test_manifest.py`).
-5. Unit-тесты сборки бандла, layout и etc-конфигов (`test_bundle.py`).
-6. Unit-тесты URL-парсинга в xdg-open и браузерных шимов (`test_shims.py`).
+Executes:
+1. Python syntax compilation (`compileall`) and shell syntax validation (`bash -n`).
+2. Extraction and archive detection unit tests (`test_extractor.py`).
+3. ELF header and architecture validation unit tests (`test_elf_validator.py`).
+4. Manifest generation and corruption detection unit tests (`test_manifest.py`).
+5. Bundle assembly, layout, and configuration unit tests (`test_bundle.py`).
+6. URL parsing and browser shim delegation unit tests (`test_shims.py`).
 
-### Сквозной E2E-пайплайн верификации
+### End-to-End Verification Pipeline
 ```bash
 python3 modules/core/validate/verify_pipeline.py
 ```
-Выполняет 5-шаговую сквозную валидацию в изолированной песочнице: сверка хэша pristine-архива -> извлечение -> валидация ELF/ABI -> сборка тестового runtime -> проверка сгенерированного манифеста.
+Performs a 5-stage end-to-end validation in an isolated sandbox: pristine archive hash verification -> extraction -> ELF/ABI validation -> test runtime assembly -> manifest integrity verification.

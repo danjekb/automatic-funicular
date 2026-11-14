@@ -1,25 +1,25 @@
 # Antigravity v2 - Environment, Diagnostics & System Gateway Subsystem (`modules/env`)
 
-> **Модуль `env`** — фундаментальная подсистема управления системным окружением, динамического разрешения путей Android/Linux, аппаратной и сетевой диагностики (preflight/port checker), структурированного телеметрического логирования, аудита выполнения команд и межпроцессного взаимодействия с Android System Gateway для Google Antigravity v2.
+> The **`env` module** is a foundational subsystem for system environment management, dynamic Android/Linux path resolution, hardware and network diagnostics (preflight/port checker), structured telemetry logging, command execution auditing, and inter-process communication with the Android System Gateway for Google Antigravity v2.
 
 ---
 
-## 1. Архитектурный обзор
+## 1. Architectural Overview
 
-Модуль `modules/env` устраняет зависимость компонентов рантайма от фиксированных путей файловой системы Android и обеспечивает стандартизированную среду выполнения:
+The `modules/env` module eliminates runtime dependencies on fixed Android filesystem paths and provides a standardized execution environment:
 
 ```
  +-----------------------------------------------------------------------------------+
  |                             SPECIFICATION LAYER                                   |
  |          [spec/paths.json]                     [spec/env_vars.json]               |
- |    (Базовые шаблоны путей Android)        (Static vars, PATH, LD_LIBRARY_PATH)    |
+ |       (Base Android path templates)       (Static vars, PATH, LD_LIBRARY_PATH)    |
  +--------------------------+---------------------------------+----------------------+
                             |                                 |
                             v                                 v
  +-----------------------------------------------------------------------------------+
  |                              CONTEXT & RESOLVER                                   |
  |         [path_resolver.py]                          [env_builder.py]              |
- |   Динамический расчет package_id,         Сборка процесса: HOME, PREFIX, PATH,    |
+ |   Dynamic resolution of package_id,       Process assembly: HOME, PREFIX, PATH,   |
  |   app_root, runtime, prefix, cache        TMPDIR, GODEBUG, GIT_CONFIG_NOSYSTEM    |
  +--------------------------+---------------------------------+----------------------+
                             |                                 |
@@ -29,70 +29,70 @@
 +--------------------------+  +--------------------------+  +--------------------------+
 |  DIAGNOSTICS & PREFLIGHT |  |   LOGGING & CRASH DUMP   |  |     COMMAND RUNNER       |
 |      [preflight.py]      |  |         [log.py]         |  |       [runner.py]        |
-|  - Архитектура (ARM64)   |  |  - ANSI Logger / JSONL   |  |  - Исполнение $ cmd      |
-|  - Свободное место (>250)|  |   [flight_recorder.py]   |  |  - Метрики: duration_ms  |
-|  - Права записи W_OK     |  |  - Аварийный дамп памяти |  |  - Аудит commands.jsonl  |
-|    [port_checker.py]     |  |    и состояния диска     |  |  - Fallback & list       |
-|  - Тест TCP Loopback     |  +--------------------------+  +--------------------------+
+|  - Architecture (ARM64)  |  |  - ANSI Logger / JSONL   |  |  - Command execution     |
+|  - Free space (>250MB)   |  |   [flight_recorder.py]   |  |  - Metrics: duration_ms  |
+|  - Write permissions W_OK|  |  - Crash dump of memory  |  |  - Audit commands.jsonl  |
+|    [port_checker.py]     |  |    and disk state        |  |  - Fallback & list       |
+|  - TCP Loopback test     |  +--------------------------+  +--------------------------+
 +--------------------------+                 |                                 |
                                              v                                 v
  +-----------------------------------------------------------------------------------+
  |                             IPC & SYSTEM GATEWAY                                  |
  |           [bridge/client.py]                           [bridge/commands.py]       |
- |    Авто-определение порта gateway.port           Высокоуровневые типизированные   |
- |    Транспорт: POST http://127.0.0.1:port/gateway  команды: notify, open, wakelock  |
+ |    Auto-detection of gateway.port                High-level typed commands:       |
+ |    Transport: POST http://127.0.0.1:port/gateway  notify, open, wakelock          |
  +-----------------------------------------------------------------------------------+
                                              |
                                              v
  +-----------------------------------------------------------------------------------+
  |                                CLI UTILITIES                                      |
  |          [cli/agy_system.py]                           [cli/agy_logs.py]          |
- |    Управление Android-уведомлениями,             Инспектор логов ядра core.log,   |
- |    Wakelock, Intent URL, Clipboard               дампов сбоев и commands.jsonl    |
+ |    Android notification management,              Core log inspector (core.log),   |
+ |    Wakelock, Intent URL, Clipboard               crash dumps, and commands.jsonl  |
  +-----------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 2. Структура каталогов модуля
+## 2. Directory Structure
 
 ```
 modules/env/
 ├── spec/
-│   ├── paths.json               # JSON-спецификация файловой структуры приложения
-│   └── env_vars.json            # JSON-спецификация базовых переменных окружения
+│   ├── paths.json               # JSON specification of the application filesystem structure
+│   └── env_vars.json            # JSON specification of base environment variables
 ├── context/
-│   ├── path_resolver.py         # Резолвер путей без хардкода, детектор package_id
-│   └── env_builder.py           # Конструктор изолированного окружения процессов
+│   ├── path_resolver.py         # Path resolver without hardcoding, package_id detector
+│   └── env_builder.py           # Constructor for isolated process environments
 ├── diagnostics/
-│   ├── preflight.py             # Префлайт-чекер архитектуры (ARM64), прав и памяти
-│   └── port_checker.py          # Проверка доступности локальных TCP-портов
+│   ├── preflight.py             # Preflight checker for architecture (ARM64), permissions, and disk space
+│   └── port_checker.py          # Availability checker for local TCP ports
 ├── logging/
-│   ├── log.py                   # Легковесный цветной ANSI + JSONL логгер
-│   └── flight_recorder.py       # Генератор аварийных JSON-снимков (crash dump)
+│   ├── log.py                   # Lightweight ANSI color + JSONL logger
+│   └── flight_recorder.py       # Crash snapshot generator (JSON crash dump)
 ├── bridge/
-│   ├── client.py                # IPC-клиент к Android Gateway с авто-fallback
-│   └── commands.py              # Типизированные системные вызовы к Android OS
+│   ├── client.py                # IPC client for Android Gateway with automatic fallback
+│   └── commands.py              # Typed system calls to the Android OS
 ├── cmd/
-│   └── runner.py                # Телеметрический движок выполнения команд
+│   └── runner.py                # Telemetry command execution engine
 ├── cli/
-│   ├── agy_system.py            # CLI-контроллер Android Gateway (notify, open, wakelock)
-│   └── agy_logs.py              # CLI-инспектор логов, истории команд и сбоев
+│   ├── agy_system.py            # CLI controller for Android Gateway (notify, open, wakelock)
+│   └── agy_logs.py              # CLI inspector for logs, command history, and crashes
 └── tests/
-    ├── run_all.sh               # Главный скрипт синтаксической и модульной проверки
-    ├── test_context.py          # Тесты резолвера путей и сборки env
-    ├── test_diagnostics.py      # Тесты префлайта и чекера портов
-    ├── test_logging.py          # Тесты логгера и flight recorder
-    ├── test_bridge.py           # Тесты клиента шлюза и типизации команд
-    └── test_cli.py              # Тесты CLI-утилит agy_system и agy_logs
+    ├── run_all.sh               # Main syntax and unit test runner script
+    ├── test_context.py          # Tests for path resolver and env builder
+    ├── test_diagnostics.py      # Tests for preflight and port checker
+    ├── test_logging.py          # Tests for logger and flight recorder
+    ├── test_bridge.py           # Tests for gateway client and command typing
+    └── test_cli.py              # Tests for agy_system and agy_logs CLI tools
 ```
 
 ---
 
-## 3. Спецификация окружения и путей (`spec/`)
+## 3. Environment and Path Specification (`spec/`)
 
-### 3.1. Карта файловой системы (`spec/paths.json`)
-Шаблоны путей используют плейсхолдер `{package_name}` (или `{app_id}`), динамически подменяемый в рантайме:
+### 3.1. Filesystem Map (`spec/paths.json`)
+Path templates utilize the `{package_name}` (or `{app_id}`) placeholder, resolved dynamically at runtime:
 ```json
 {
   "app_root": "/data/user/0/{package_name}/files",
@@ -105,8 +105,8 @@ modules/env/
 }
 ```
 
-### 3.2. Спецификация переменных окружения (`spec/env_vars.json`)
-Определяет базовые переменные, порядок поиска в `PATH` и библиотеки:
+### 3.2. Environment Variable Specification (`spec/env_vars.json`)
+Defines base variables, `PATH` search order, and library directories:
 ```json
 {
   "static": {
@@ -133,231 +133,231 @@ modules/env/
 
 ---
 
-## 4. Контекст и динамический резолвер путей (`context/`)
+## 4. Context and Dynamic Path Resolver (`context/`)
 
 ### 4.1. `path_resolver.py`
-Отвечает за устранение жестких привязок к имени пакета (`dev.continuum.antigravity` vs `dev.continuum.antigravity.dev` vs кастомные сборки):
-- `get_application_id() -> str`: Определение идентификатора пакета по приоритетам:
-  1. Переменная окружения `AGY_APPLICATION_ID`
-  2. Переменная окружения `APPLICATION_ID`
-  3. Флаг `DEV_MODE == "1"` (возвращает `dev.continuum.antigravity.dev`)
-  4. По умолчанию: `dev.continuum.antigravity`
-- `load_paths(custom_spec=None, app_id=None) -> Dict[str, str]`: Загрузка и интерполяция путей из `paths.json` с гарантированным получением абсолютных путей через `os.path.abspath(os.path.expanduser(...))`.
-- `resolve_subpath(key: str, rel_path: str, custom_spec=None, app_id=None) -> str`: Безопасное присоединение подпутей. Для предотвращения сброса корневого каталога при передаче ведущего слэша (`/bin/tool`) вызывается `rel_path.lstrip("/")`.
+Eliminates hardcoded package names (`dev.continuum.antigravity` vs `dev.continuum.antigravity.dev` vs custom builds):
+- `get_application_id() -> str`: Determines the package identifier by order of precedence:
+  1. `AGY_APPLICATION_ID` environment variable
+  2. `APPLICATION_ID` environment variable
+  3. `DEV_MODE == "1"` flag (returns `dev.continuum.antigravity.dev`)
+  4. Default fallback: `dev.continuum.antigravity`
+- `load_paths(custom_spec=None, app_id=None) -> Dict[str, str]`: Loads and interpolates paths from `paths.json`, ensuring absolute paths via `os.path.abspath(os.path.expanduser(...))`.
+- `resolve_subpath(key: str, rel_path: str, custom_spec=None, app_id=None) -> str`: Safely joins subpaths. To prevent discarding the root path when a leading slash is passed (`/bin/tool`), `rel_path.lstrip("/")` is applied.
 
 ### 4.2. `env_builder.py`
 - `build_process_env(custom_spec_dir=None, extra_env=None, app_id=None) -> Dict[str, str]`:
-  Формирует чистый и детерминированный словарь окружения для порождаемых процессов:
-  - `HOME`: Привязан к `paths["app_root"]`
-  - `PREFIX`: Linux-префикс `paths["prefix"]` (`/data/user/0/{package}/files/usr`)
-  - `TMPDIR`: Каталог кэша `paths["cache"]`
-  - `GIT_CONFIG_NOSYSTEM`: Значение `"1"` (блокирует ошибки отсутствия системного etc Termux)
-  - `AGY_APPLICATION_ID`: Идентификатор активного пакета
-  - `PATH`: Собран из `{runtime}/bin:{prefix}/bin:/system/bin`
-  - `LD_LIBRARY_PATH`: Каталоги `{runtime}/lib` и `{prefix}/lib` (если директории существуют)
-  - `extra_env`: Дополнительные пользовательские переменные
+  Constructs a clean, deterministic environment dictionary for spawned processes:
+  - `HOME`: Set to `paths["app_root"]`
+  - `PREFIX`: Linux userspace prefix `paths["prefix"]` (`/data/user/0/{package}/files/usr`)
+  - `TMPDIR`: Cache directory `paths["cache"]`
+  - `GIT_CONFIG_NOSYSTEM`: Set to `"1"` (prevents missing Termux system config errors)
+  - `AGY_APPLICATION_ID`: Active package identifier
+  - `PATH`: Assembled from `{runtime}/bin:{prefix}/bin:/system/bin`
+  - `LD_LIBRARY_PATH`: Directories `{runtime}/lib` and `{prefix}/lib` (if directories exist)
+  - `extra_env`: Additional custom user environment variables
 
 ---
 
-## 5. Системная диагностика (`diagnostics/`)
+## 5. System Diagnostics (`diagnostics/`)
 
-### 5.1. Префлайт-чекер (`diagnostics/preflight.py`)
-Проверяет готовность хоста Android перед развертыванием или запуском ядра:
+### 5.1. Preflight Checker (`diagnostics/preflight.py`)
+Verifies Android host readiness prior to deployment or core startup:
 ```python
 def run_preflight(app_root: Optional[str] = None, min_mb_free: int = 250) -> Dict[str, Any]
 ```
-- **Архитектура процессора**: Проверяет `platform.machine()`. Допускаются только `aarch64` / `arm64`.
-- **Свободное дисковое пространство**: Проверяет доступную память на разделе `app_root` через `shutil.disk_usage()`. Порог по умолчанию — не менее 250 МБ.
-- **Права на запись**: Проверяет `os.access(app_root, os.W_OK)`.
-- **Динамический fallback**: Если `app_root` не задан, резолвит его через `path_resolver`, а затем через `$HOME`.
+- **CPU Architecture**: Checks `platform.machine()`. Only `aarch64` / `arm64` are permitted.
+- **Available Disk Space**: Checks free space on the `app_root` partition via `shutil.disk_usage()`. Default threshold is at least 250 MB.
+- **Write Permissions**: Verifies `os.access(app_root, os.W_OK)`.
+- **Dynamic Fallback**: If `app_root` is not specified, dynamically resolves it via `path_resolver`, falling back to `$HOME`.
 
-### 5.2. Валидатор портов (`diagnostics/port_checker.py`)
+### 5.2. Port Availability Validator (`diagnostics/port_checker.py`)
 ```python
 def check_port_available(port: int, host: str = "127.0.0.1") -> Dict[str, Any]
 ```
-- Проверяет возможность привязки TCP-сокета (`socket.bind`) к loopback-интерфейсу с таймаутом 0.5с.
-- Возвращает `{"port": port, "available": True/False, "error": None/str}`.
+- Tests TCP socket binding (`socket.bind`) to the loopback interface with a 0.5s timeout.
+- Returns `{"port": port, "available": True/False, "error": None/str}`.
 
 ---
 
-## 6. Логирование и постмортем аварий (`logging/`)
+## 6. Logging and Crash Post-Mortem (`logging/`)
 
-### 6.1. Структурированный логгер (`logging/log.py`)
+### 6.1. Structured Logger (`logging/log.py`)
 ```python
 def log(level: str, tag: str, message: str, meta: Dict[str, Any] = None, jsonl_file: str = None) -> None
 ```
-- **ANSI Цвета**: `DEBUG` (серый), `INFO` (синий), `OK` (зеленый), `WARN` (желтый), `ERROR` (красный).
-- **Поддержка `NO_COLOR`**: При установке переменной окружения `NO_COLOR` или `TERM=dumb` экранирующие символы автоматически отключаются.
-- **Разделение потоков**: Логи уровня `ERROR` выводятся в `sys.stderr`, остальные уровни — в `sys.stdout`.
-- **JSONL Streaming**: При указании `jsonl_file` запись формируется в атомарном формате JSON Lines с меткой времени в миллисекундах (`ts`). Операции защищены блоком `try-except`.
+- **ANSI Colors**: `DEBUG` (gray), `INFO` (blue), `OK` (green), `WARN` (yellow), `ERROR` (red).
+- **`NO_COLOR` Support**: Automatically strips escape sequences when `NO_COLOR` is set or `TERM=dumb`.
+- **Stream Separation**: Logs with `ERROR` level are emitted to `sys.stderr`, while other levels go to `sys.stdout`.
+- **JSONL Streaming**: When `jsonl_file` is specified, writes atomic JSON Lines entries with millisecond timestamps (`ts`). Operations are safeguarded within a `try-except` block.
 
-### 6.2. Аварийный регистратор (`logging/flight_recorder.py`)
+### 6.2. Crash Flight Recorder (`logging/flight_recorder.py`)
 ```python
 def record_crash_snapshot(error_msg: str, dump_path: str, extra_context: Dict[str, Any] = None) -> str
 ```
-- Создает детальный постмортем снимок инцидента:
-  - Точное время (epoch ms и ISO 8601 UTC)
-  - Сообщение об ошибке и контекст (`extra_context`)
-  - Данные платформы, архитектура, версия Python, PID
-  - Состояние файловой системы (`shutil.disk_usage`) целевого каталога
-- Сохраняет форматированный JSON по пути `dump_path`.
+- Generates a comprehensive post-mortem snapshot of an incident:
+  - Exact timestamp (epoch ms and ISO 8601 UTC)
+  - Error message and contextual details (`extra_context`)
+  - Platform data, architecture, Python version, PID
+  - Target directory filesystem state (`shutil.disk_usage`)
+- Saves formatted JSON to `dump_path`.
 
 ---
 
-## 7. Системный шлюз и IPC-мост (`bridge/`)
+## 7. System Gateway and IPC Bridge (`bridge/`)
 
-Обеспечивает межпроцессную связь между Python-скриптами, фоновыми задачами и системными службами Android OS через `CoreServerService` (Android System Gateway).
+Enables inter-process communication between Python scripts, background tasks, and Android system services via `CoreServerService` (Android System Gateway).
 
-### 7.1. IPC-клиент (`bridge/client.py`)
+### 7.1. IPC Client (`bridge/client.py`)
 - `resolve_gateway_url() -> str`:
-  1. Проверяет переменную окружения `AGY_GATEWAY_URL`.
-  2. Ищет файл динамического порта `gateway.port` в `$HOME/logs/gateway.port`, `app_root/logs/gateway.port` и стандартных директориях `dev.continuum.antigravity.dev` / `dev.continuum.antigravity`.
-  3. При отсутствии файла выбирает порт по умолчанию: `45161` для `DEV_MODE=1` / `dev.continuum.antigravity.dev`, либо `45160` для production.
+  1. Checks the `AGY_GATEWAY_URL` environment variable.
+  2. Searches for the dynamic port file `gateway.port` in `$HOME/logs/gateway.port`, `app_root/logs/gateway.port`, and standard `dev.continuum.antigravity.dev` / `dev.continuum.antigravity` directories.
+  3. If the file is not found, selects a default port: `45161` for `DEV_MODE=1` / `dev.continuum.antigravity.dev`, or `45160` for production.
 - `send_command(command: str, payload: dict = None, gateway_url: str = None) -> dict`:
-  - Отправляет HTTP POST запрос с JSON-конвертом `{command, payload}` на эндпоинт `/gateway`.
-  - Автоматический failover: при недоступности основного порта выполняет попытку переподключения на альтернативный порт (`45160` <-> `45161`).
-  - Возвращает `{ok: False, fallback: True, error: ...}` при невозможности связаться со шлюзом без генерации необработанных исключений.
+  - Dispatches an HTTP POST request with a JSON envelope `{command, payload}` to the `/gateway` endpoint.
+  - Automatic failover: retries connection on the alternate port (`45160` <-> `45161`) if the primary port is unreachable.
+  - Returns `{ok: False, fallback: True, error: ...}` when unable to communicate with the gateway, avoiding unhandled exceptions.
 
-### 7.2. Типизированный фасад команд (`bridge/commands.py`)
-- `notify(title, message, progress=None, tag="agy_status", channel="agy_tasks", ongoing=False) -> dict`: Отправка Android-уведомления в статус-бар с поддержкой прогресс-бара (0-100) и закрепления.
-- `cancel_notify(tag="agy_status", notification_id=1001) -> dict`: Отзыв активного уведомления.
-- `open_url(url: str) -> dict`: Открытие веб-ссылки или диплинка через Android Intent (`ACTION_VIEW`).
-- `wakelock(acquire=True, tag="agy_task") -> dict`: Удержание/освобождение процессорного `PARTIAL_WAKE_LOCK`.
-- `clipboard_set(text: str) -> dict`: Копирование текста в системный буфер обмена Android.
-- `clipboard_get() -> dict`: Чтение текста из системного буфера обмена Android.
-- `system_info() -> dict`: Запрос состояния батареи, сети, свободной памяти и диска.
+### 7.2. Typed Command Facade (`bridge/commands.py`)
+- `notify(title, message, progress=None, tag="agy_status", channel="agy_tasks", ongoing=False) -> dict`: Posts an Android status bar notification with progress bar (0-100) and ongoing pin support.
+- `cancel_notify(tag="agy_status", notification_id=1001) -> dict`: Dismisses an active notification.
+- `open_url(url: str) -> dict`: Opens a web link or deep link via Android Intent (`ACTION_VIEW`).
+- `wakelock(acquire=True, tag="agy_task") -> dict`: Acquires or releases a CPU `PARTIAL_WAKE_LOCK`.
+- `clipboard_set(text: str) -> dict`: Copies text to the Android system clipboard.
+- `clipboard_get() -> dict`: Reads text from the Android system clipboard.
+- `system_info() -> dict`: Queries battery status, network state, available RAM, and free disk space.
 
 ---
 
-## 8. Движок аудита и выполнения команд (`cmd/runner.py`)
+## 8. Command Execution and Auditing Engine (`cmd/runner.py`)
 
-Утилита и библиотека для прозрачного исполнения команд оболочки с расширенным профилированием и аудитом:
+A utility and library for transparent shell command execution with detailed profiling and auditing:
 
 ```bash
-# Исполнение команды с телеметрией:
+# Execute command with telemetry:
 python3 modules/env/cmd/runner.py run "echo 'Hello Antigravity'"
 
-# Прямой вызов:
+# Direct invocation:
 python3 modules/env/cmd/runner.py pkg list
 
-# Просмотр последних выполненных команд:
+# View recently executed commands:
 python3 modules/env/cmd/runner.py list 20
 ```
 
-- Вычисляет точную продолжительность выполнения в миллисекундах (`duration_ms`).
-- Записывает каждую команду в append-only аудит-лог `commands.jsonl` в директории логов приложения (`$HOME/logs/commands.jsonl`).
-- Выводит форматированное дерево с кодом возврата, длительностью и первыми строками вывода.
+- Calculates precise execution duration in milliseconds (`duration_ms`).
+- Appends every command to an append-only audit log `commands.jsonl` in the application log directory (`$HOME/logs/commands.jsonl`).
+- Renders a formatted execution tree with return code, duration, and output preview lines.
 
 ---
 
-## 9. CLI интерфейсы (`cli/`)
+## 9. CLI Interfaces (`cli/`)
 
-### 9.1. Системный контроллер (`cli/agy_system.py`)
+### 9.1. System Controller (`cli/agy_system.py`)
 
-Единый терминальный интерфейс для управления Android-функциями:
+Unified terminal interface for managing Android features:
 
 ```bash
-# 1. Системные уведомления:
-python3 modules/env/cli/agy_system.py notify -t "Сборка завершена" -m "APK успешно скомпилирован" --tag "build"
-python3 modules/env/cli/agy_system.py notify -t "Загрузка" --progress 75 --ongoing
+# 1. System notifications:
+python3 modules/env/cli/agy_system.py notify -t "Build Finished" -m "APK compiled successfully" --tag "build"
+python3 modules/env/cli/agy_system.py notify -t "Downloading" --progress 75 --ongoing
 python3 modules/env/cli/agy_system.py notify cancel --tag "build"
 
-# 2. Открытие URL в системном браузере / Custom Tabs:
+# 2. Open URL in default system browser / Custom Tabs:
 python3 modules/env/cli/agy_system.py open "https://github.com"
 
-# 3. Управление фоновым режимом (Wakelock):
+# 3. Background execution management (Wakelock):
 python3 modules/env/cli/agy_system.py wakelock on --tag "long_job"
 python3 modules/env/cli/agy_system.py wakelock off --tag "long_job"
 
-# 4. Диагностика хоста Android:
+# 4. Android host diagnostics:
 python3 modules/env/cli/agy_system.py info
 python3 modules/env/cli/agy_system.py --json info
 
-# 5. Буфер обмена:
-echo "секретный токен" | python3 modules/env/cli/agy_system.py clipboard set
+# 5. Clipboard:
+echo "secret token" | python3 modules/env/cli/agy_system.py clipboard set
 python3 modules/env/cli/agy_system.py clipboard get
 ```
 
-### 9.2. Инспектор телеметрии и логов (`cli/agy_logs.py`)
+### 9.2. Telemetry and Log Inspector (`cli/agy_logs.py`)
 
-Инструмент анализа состояния рантайма ядра Antigravity:
+Inspection tool for analyzing Antigravity core runtime status:
 
 ```bash
-# 1. Просмотр последних строк общего лога:
+# 1. View recent general log lines:
 python3 modules/env/cli/agy_logs.py -n 50
 
-# 2. Фильтрация по подсистеме и уровню важности:
+# 2. Filter by channel and severity level:
 python3 modules/env/cli/agy_logs.py --channel core --level ERROR
 
-# 3. Аудит выполненных команд:
+# 3. Audit executed commands:
 python3 modules/env/cli/agy_logs.py --commands -n 25
 
-# 4. Детальный разбор конкретной команды (STDOUT, STDERR, время):
+# 4. Detailed inspection of a specific command (STDOUT, STDERR, timing):
 python3 modules/env/cli/agy_logs.py --cmd-id "cmd_1792097231_1ec8"
 
-# 5. Проверка последнего отчета об аварии (Crash Report):
+# 5. Inspect the latest crash report:
 python3 modules/env/cli/agy_logs.py --crash
 python3 modules/env/cli/agy_logs.py --crash --json
 ```
 
 ---
 
-## 10. Модульное тестирование (`tests/`)
+## 10. Unit Testing (`tests/`)
 
-Тестовый набор покрывает 100% компонентов подсистемы `env`.
+The test suite provides 100% component coverage for the `env` subsystem.
 
-### Запуск тестов
+### Running Tests
 ```bash
 bash modules/env/tests/run_all.sh
 ```
 
-### Состав тестового набора
-| Тестовый файл | Компонент | Проверяемый сценарий |
+### Test Suite Structure
+| Test File | Component | Verified Scenario |
 | :--- | :--- | :--- |
-| `test_context.py` | `path_resolver`, `env_builder` | 9 тестов: резолв путей, subpath с ведущим слэшем, переменные `HOME`, `PREFIX`, `TMPDIR`, `GIT_CONFIG_NOSYSTEM`, динамический `AGY_APPLICATION_ID`, `DEV_MODE` и переопределение `app_id`. |
-| `test_diagnostics.py` | `preflight`, `port_checker` | 3 теста: проверка текущей ФС, дефолтный префлайт без аргументов, валидация свободных TCP loopback портов. |
-| `test_logging.py` | `log`, `flight_recorder` | 2 теста: запись структурированного JSONL потока, генерация снимка аварии со сбором метаданных платформы и диска. |
-| `test_bridge.py` | `client`, `commands` | 5 тестов: авто-fallback шлюза в оффлайн-режиме, форматирование URL, wakelock, интроспекция `typing.get_type_hints()` и валидация всех методов команд. |
-| `test_cli.py` | `agy_system`, `agy_logs` | 6 тестов: вызов справки CLI, парсинг системной информации в JSON, проверка отчетов о сбоях, чтение буфера в JSON, аудит команд через `--commands`. |
+| `test_context.py` | `path_resolver`, `env_builder` | 9 tests: path resolution, subpaths with leading slashes, environment variables `HOME`, `PREFIX`, `TMPDIR`, `GIT_CONFIG_NOSYSTEM`, dynamic `AGY_APPLICATION_ID`, `DEV_MODE`, and `app_id` overrides. |
+| `test_diagnostics.py` | `preflight`, `port_checker` | 3 tests: current filesystem validation, default preflight without arguments, free TCP loopback port validation. |
+| `test_logging.py` | `log`, `flight_recorder` | 2 tests: structured JSONL stream writing, crash snapshot generation with platform and disk metadata collection. |
+| `test_bridge.py` | `client`, `commands` | 5 tests: automatic gateway fallback in offline mode, URL formatting, wakelock, `typing.get_type_hints()` introspection, and validation of all command methods. |
+| `test_cli.py` | `agy_system`, `agy_logs` | 6 tests: CLI help invocation, JSON system info parsing, crash report verification, clipboard JSON reading, and command auditing via `--commands`. |
 
 ---
 
-## 11. Аудит надёжности, выявленные баги и исправления
+## 11. Reliability Audit, Identified Bugs, and Fixes
 
-В ходе глубокого аудита исходного кода подсистемы `modules/env` были обнаружены и устранены критические архитектурные дефекты, ошибки путей в Android и проблемы типизации:
+During an in-depth source code audit of the `modules/env` subsystem, critical architectural defects, Android path errors, and typing issues were identified and resolved:
 
-### 11.1. Критический хардкод путей в `preflight.py`
-- **Проблема**: В сигнатуре функции `run_preflight` аргумент по умолчанию был жестко зафиксирован: `app_root: str = "/data/user/0/dev.continuum.antigravity/files"`.
-- **Следствие**: В дебаг-сборках (`dev.continuum.antigravity.dev`) или любых пользовательских пакетах вызов `run_preflight()` без аргументов проверял несуществующий каталог production-пакета `dev.continuum.antigravity`. В результате `os.path.exists()` возвращал `False`, `free_mb = 0`, и префлайт-чекер безусловно рапортовал об ошибке `ok: False`, блокируя запуск ядра.
-- **Исправление**: Параметр изменен на `app_root: Optional[str] = None`. Добавлено каскадное динамическое определение каталога через `path_resolver.load_paths()["app_root"]` -> `$HOME` -> fallback.
+### 11.1. Critical Path Hardcoding in `preflight.py`
+- **Issue**: In `run_preflight`, the default parameter value was hardcoded: `app_root: str = "/data/user/0/dev.continuum.antigravity/files"`.
+- **Impact**: In debug builds (`dev.continuum.antigravity.dev`) or custom packages, invoking `run_preflight()` without arguments checked a non-existent production package directory (`dev.continuum.antigravity`). Consequently, `os.path.exists()` returned `False`, `free_mb = 0`, and preflight unconditionally reported `ok: False`, blocking core startup.
+- **Fix**: Changed the parameter to `app_root: Optional[str] = None`. Added cascading dynamic resolution: `path_resolver.load_paths()["app_root"]` -> `$HOME` -> fallback.
 
-### 11.2. Ошибка типизации `NameError: Optional` в `bridge/commands.py`
-- **Проблема**: В сигнатурах функций использовались аннотации типов `Optional[int]`, `Dict[str, Any]`, однако импорт из модуля `typing` отсутствовал.
-- **Следствие**: При интроспекции типов (например, через `typing.get_type_hints(commands.notify)` или библиотеки валидации Pydantic/FastAPI) в Python 3.10+ возбуждалось исключение `NameError: name 'Optional' is not defined`.
-- **Исправление**: Добавлен явный импорт `from typing import Dict, Any, Optional`, а также реализованы недостающие методы `clipboard_get()`, `cancel_notify()` и `system_info()`.
+### 11.2. Typing Error `NameError: Optional` in `bridge/commands.py`
+- **Issue**: Function signatures used type annotations `Optional[int]` and `Dict[str, Any]`, but the import from `typing` was missing.
+- **Impact**: Type introspection (e.g., via `typing.get_type_hints(commands.notify)` or Pydantic/FastAPI validation) raised `NameError: name 'Optional' is not defined` on Python 3.10+.
+- **Fix**: Added explicit imports `from typing import Dict, Any, Optional`, and implemented the missing methods `clipboard_get()`, `cancel_notify()`, and `system_info()`.
 
-### 11.3. Подавление логирования и хардкод в `cmd/runner.py`
-- **Проблема**: Путь `LOG_DIR` был жестко задан как `/data/user/0/dev.continuum.antigravity/files/logs`.
-- **Следствие**: При работе в окружении `dev.continuum.antigravity.dev` создание директории или запись в `commands.jsonl` завершалась отказом в доступе (`PermissionDenied`), который молча глушился блоком `except Exception: pass`. Все команды, запущенные через `runner.py`, теряли историю аудита.
-- **Исправление**: Реализована функция `_resolve_log_dir()`, приоритетно использующая `$HOME/logs` и `path_resolver`.
+### 11.3. Suppressed Logging and Hardcoded Paths in `cmd/runner.py`
+- **Issue**: The `LOG_DIR` path was hardcoded to `/data/user/0/dev.continuum.antigravity/files/logs`.
+- **Impact**: In a `dev.continuum.antigravity.dev` environment, directory creation or writing to `commands.jsonl` failed with `PermissionDenied`, which was silently swallowed by `except Exception: pass`. All commands executed via `runner.py` lost audit history.
+- **Fix**: Implemented `_resolve_log_dir()`, giving priority to `$HOME/logs` and `path_resolver`.
 
-### 11.4. Недоступность логов и дампов сбоев в `cli/agy_logs.py`
-- **Проблема**: Пути к файлам `commands.jsonl`, `logs/core.log` и каталогу `logs/crashes` были жестко привязаны к `dev.continuum.antigravity`. При этом в `read_file_fallback` проверялся путь `~/.gemini/logs/core.log`, тогда как реальный файл создается в `$HOME/logs/core.log`.
-- **Следствие**: Если шлюз Android Gateway был оффлайн, команда `agy_logs.py` не могла обнаружить ни один лог-файл и выводила пустоту.
-- **Исправление**: Внедрена функция `_find_commands_log()`, пути объединены с динамическим резолвером, а в список кандидатов `core.log` добавлен `$HOME/logs/core.log`.
+### 11.4. Unreachable Logs and Crash Dumps in `cli/agy_logs.py`
+- **Issue**: File paths for `commands.jsonl`, `logs/core.log`, and `logs/crashes` were hardcoded to `dev.continuum.antigravity`. Additionally, `read_file_fallback` checked `~/.gemini/logs/core.log`, whereas the real file is created in `$HOME/logs/core.log`.
+- **Impact**: When the Android Gateway was offline, `agy_logs.py` could not find any log files and rendered empty output.
+- **Fix**: Introduced `_find_commands_log()`, unified paths with the dynamic resolver, and added `$HOME/logs/core.log` to the candidate list for `core.log`.
 
-### 11.5. Дублирование логики поиска порта Gateway
-- **Проблема**: Функция `resolve_gateway_url()` в `bridge/client.py` и `get_gateway_base()` в `cli/agy_logs.py` содержали идентичный дублированный код, причем обе функции проверяли только статические пути к `gateway.port`.
-- **Исправление**: `agy_logs.py` теперь импортирует централизованный метод из `bridge.client`, а сам резолвер порта проверяет `$HOME/logs/gateway.port` и флаг окружения `AGY_APPLICATION_ID == "dev.continuum.antigravity.dev"`.
+### 11.5. Duplicated Gateway Port Discovery Logic
+- **Issue**: `resolve_gateway_url()` in `bridge/client.py` and `get_gateway_base()` in `cli/agy_logs.py` contained duplicate code, and both functions checked only static paths for `gateway.port`.
+- **Fix**: `agy_logs.py` now imports the centralized method from `bridge.client`, and the resolver itself checks `$HOME/logs/gateway.port` as well as the environment flag `AGY_APPLICATION_ID == "dev.continuum.antigravity.dev"`.
 
-### 11.6. Отсутствие `$PREFIX` и `$GIT_CONFIG_NOSYSTEM` в `env_builder.py`
-- **Проблема**: Переменная `PREFIX` (`/data/user/0/{package}/files/usr`) является ключевой переменной окружения в Android userland (Termux / AGY). Несмотря на наличие ключа `"prefix"` в `paths.json`, `env_builder.py` не устанавливал `PREFIX`. Также отсутствовал флаг `GIT_CONFIG_NOSYSTEM=1`.
-- **Исправление**: Добавлена явная установка `env["PREFIX"] = paths["prefix"]` и `env["GIT_CONFIG_NOSYSTEM"] = "1"`.
+### 11.6. Missing `$PREFIX` and `$GIT_CONFIG_NOSYSTEM` in `env_builder.py`
+- **Issue**: `PREFIX` (`/data/user/0/{package}/files/usr`) is a key environment variable in Android userland (Termux / AGY). Despite `"prefix"` existing in `paths.json`, `env_builder.py` failed to export `PREFIX`. The `GIT_CONFIG_NOSYSTEM=1` flag was also omitted.
+- **Fix**: Added explicit assignment `env["PREFIX"] = paths["prefix"]` and `env["GIT_CONFIG_NOSYSTEM"] = "1"`.
 
-### 11.7. Баг сброса пути в `path_resolver.resolve_subpath`
-- **Проблема**: В стандартной библиотеке Python вызов `os.path.join("/a/b", "/c")` возвращает `"/c"`. Передача относительного пути с ведущим слэшем (например, `resolve_subpath("runtime", "/bin/sh")`) приводила к отбрасыванию базового каталога.
-- **Исправление**: Добавлена нормализация `rel_path.lstrip("/")`.
+### 11.7. Path Discard Bug in `path_resolver.resolve_subpath`
+- **Issue**: In the Python standard library, calling `os.path.join("/a/b", "/c")` returns `"/c"`. Passing a relative path with a leading slash (e.g. `resolve_subpath("runtime", "/bin/sh")`) caused the base path to be discarded.
+- **Fix**: Added normalization via `rel_path.lstrip("/")`.
 
-### 11.8. Игнорирование флага `--json` и тихие ошибки в `cli/agy_system.py`
-- **Проблема**: Подкоманда `clipboard` игнорировала аргумент `--json` и ничего не сообщала пользователю при ошибках связи со шлюзом.
-- **Исправление**: Реализован вывод сырого JSON при флаге `--json` и вывод сообщений об ошибках в `stderr` с ненулевым кодом выхода.
+### 11.8. Ignored `--json` Flag and Silent Failures in `cli/agy_system.py`
+- **Issue**: The `clipboard` subcommand ignored the `--json` argument and did not inform the user when gateway communication failed.
+- **Fix**: Implemented raw JSON output when `--json` is passed, and error reporting to `stderr` with non-zero exit codes.

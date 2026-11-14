@@ -1,15 +1,15 @@
-# Модуль сборщика APK: `modules/builder`
+# APK Builder Module: `modules/builder`
 
-> Автономный конвейер сборки Android APK без Gradle и Android Studio.
-> Оптимизирован для нативного выполнения непосредственно в окружении Android (ARM64 / Linux).
+> Autonomous Android APK build pipeline without Gradle or Android Studio.
+> Optimized for native execution directly inside the Android environment (ARM64 / Linux).
 
 ---
 
-## 1. Обзор архитектуры
+## 1. Architecture Overview
 
-Сборка Antigravity APK выполняется полностью независимо от тяжелых систем сборки (Gradle, AGP, Groovy/Kotlin daemon). Оркестратор [`build_apk.sh`](build_apk.sh) вызывает цепочку атомарных скриптов, напрямую управляя низкоуровневыми бинарными утилитами Android SDK (`aapt`, `javac`, `d8`/`r8`, `zipalign`, `apksigner`) и специализированными Python-утилитами.
+The Antigravity APK build process runs completely independently of heavy build frameworks (Gradle, AGP, Groovy/Kotlin daemon). The orchestrator [`build_apk.sh`](build_apk.sh) executes a sequence of atomic scripts, directly driving low-level Android SDK binary tools (`aapt`, `javac`, `d8`/`r8`, `zipalign`, `apksigner`) and specialized Python utilities.
 
-### Схема конвейера (Pipeline Diagram)
+### Pipeline Diagram
 
 ```mermaid
 flowchart TD
@@ -53,134 +53,134 @@ flowchart TD
 
 ---
 
-## 2. Этапы конвейера сборки (Build Stages)
+## 2. Build Pipeline Stages
 
-| Этап | Скрипт | Главный инструмент | Входы | Выходы | Назначение |
+| Stage | Script | Primary Tool | Inputs | Outputs | Purpose |
 |---|---|---|---|---|---|
-| **01** | [`01_gen_config.py`](01_gen_config.py) | Python 3 | `config/app.env`, `AndroidManifest.xml` | `build/gen/**/BuildConfig.java`, `build/res/values/gen.xml`, `build/AndroidManifest.xml` | Генерация констант, портов и dev-манифеста в build-дерево (без загрязнения git) |
-| **02** | [`02_r_java.sh`](02_r_java.sh) | `aapt` | `AndroidManifest.xml`, `res/`, `build/res/`, `android.jar` | `build/gen/**/R.java` | Компиляция идентификаторов ресурсов с оверлеем и пропуском дубля в релизе |
-| **03** | [`03_compile_java.sh`](03_compile_java.sh) | `javac` | `@build/java_sources.txt`, `android.jar` | `build/obj/**/*.class` | Компиляция Java-исходников через аргументный файл (защита от `ARG_MAX`) |
-| **04** | [`04_dex.sh`](04_dex.sh) | `D8` (`tools/r8.jar`) | `@build/class_files.txt`, `android.jar` | `build/dex/classes.dex` | Трансляция Java-байткода в DEX через аргументный файл D8 без переполнения CLI |
-| **05** | [`05_stage_assets.py`](05_stage_assets.py) | Python 3 + `modules/runner` | Ядро рантайма, `web/`, `env/dist/env` | `build/staging/assets/` | Сборка и верификация ассетов (runtime, web, env) |
-| **06** | [`06_package.sh`](06_package.sh) | `aapt` + `zipfile` | Ресурсы + оверлей `build/res`, манифест, `classes.dex`, `staging/assets/` | `build/unaligned.apk` | Создание базового APK с оверлеем и инъекция dex и ассетов |
-| **07** | [`align.py`](align.py) | `zipalign` / Python | `build/unaligned.apk` | `build/aligned.apk` | 4-байтовое выравнивание ZIP-архива для `mmap` |
-| **08** | [`08_sign.sh`](08_sign.sh) | `apksigner` | `build/aligned.apk`, `tools/debug.keystore` | `dist/antigravity.apk` или `dist/antigravity-dev.apk` | Подпись схемами v1, v2 и v3 |
-| **09** | [`09_verify.sh`](09_verify.sh) | `apksigner` | `dist/*.apk` | Результат проверки в stdout | Полная проверка валидности и схемы подписи |
+| **01** | [`01_gen_config.py`](01_gen_config.py) | Python 3 | `config/app.env`, `AndroidManifest.xml` | `build/gen/**/BuildConfig.java`, `build/res/values/gen.xml`, `build/AndroidManifest.xml` | Generates constants, ports, and dev-manifest into the build tree (without dirtying git) |
+| **02** | [`02_r_java.sh`](02_r_java.sh) | `aapt` | `AndroidManifest.xml`, `res/`, `build/res/`, `android.jar` | `build/gen/**/R.java` | Compiles resource IDs with overlay support, skipping duplicate generation in release builds |
+| **03** | [`03_compile_java.sh`](03_compile_java.sh) | `javac` | `@build/java_sources.txt`, `android.jar` | `build/obj/**/*.class` | Compiles Java sources via an argument file (preventing `ARG_MAX` overflow) |
+| **04** | [`04_dex.sh`](04_dex.sh) | `D8` (`tools/r8.jar`) | `@build/class_files.txt`, `android.jar` | `build/dex/classes.dex` | Translates Java bytecode to DEX via a D8 argument file without CLI length overflow |
+| **05** | [`05_stage_assets.py`](05_stage_assets.py) | Python 3 + `modules/runner` | Runtime core, `web/`, `env/dist/env` | `build/staging/assets/` | Stages and validates assets (runtime, web, env) |
+| **06** | [`06_package.sh`](06_package.sh) | `aapt` + `zipfile` | Resources + overlay `build/res`, manifest, `classes.dex`, `staging/assets/` | `build/unaligned.apk` | Builds baseline APK with resource overlay and injects dex and assets |
+| **07** | [`align.py`](align.py) | `zipalign` / Python | `build/unaligned.apk` | `build/aligned.apk` | 4-byte ZIP alignment for optimal Android `mmap` performance |
+| **08** | [`08_sign.sh`](08_sign.sh) | `apksigner` | `build/aligned.apk`, `tools/debug.keystore` | `dist/antigravity.apk` or `dist/antigravity-dev.apk` | Signs APK with v1, v2, and v3 signature schemes |
+| **09** | [`09_verify.sh`](09_verify.sh) | `apksigner` | `dist/*.apk` | Verification report to stdout | Full validation of APK signature integrity and scheme compliance |
 
 ---
 
-## 3. Детальное описание шагов
+## 3. Detailed Step Breakdown
 
-### Шаг 01: Генерация конфигурации (`01_gen_config.py`)
-- **Вход**: Переменные из `config/app.env` и `DEV_MODE` (0 или 1).
-- **Выход**:
-  - `build/gen/com/agy/BuildConfig.java`: статические поля `PORT`, `GATEWAY_PORT`, `CORE_VERSION`, `APP_VERSION_NAME`, `DEBUG`.
-  - `build/res/values/gen.xml`: строковые и целочисленные XML-ресурсы для Android framework (генерируются в дерево сборки, исключая загрязнение репозитория и `git status`).
-  - `build/AndroidManifest.xml`: подстановка `${applicationId}`, а в dev-режиме — изменение пакета на `dev.continuum.antigravity.dev`, установка `android:debuggable="true"` и изоляция `permission.INTERNAL_BROADCAST`.
+### Step 01: Configuration Generation (`01_gen_config.py`)
+- **Inputs**: Environment variables from `config/app.env` and `DEV_MODE` (0 or 1).
+- **Outputs**:
+  - `build/gen/com/agy/BuildConfig.java`: static fields `PORT`, `GATEWAY_PORT`, `CORE_VERSION`, `APP_VERSION_NAME`, and `DEBUG`.
+  - `build/res/values/gen.xml`: string and integer XML resources for the Android framework (generated inside the build tree, keeping repository working tree and `git status` clean).
+  - `build/AndroidManifest.xml`: substitutes `${applicationId}`, and in dev mode rewrites the package name to `dev.continuum.antigravity.dev`, enables `android:debuggable="true"`, and isolates `permission.INTERNAL_BROADCAST`.
 
-### Шаг 02: Генерация R.java (`02_r_java.sh`)
-- Запускает `aapt package -m -J <gen_dir>` для разбора ресурсов и создания числовых ID с оверлеем `-S "$BUILD_DIR/res" -S "$RES_DIR" --auto-add-overlay`.
-- Проверяет имя пакета в целевом манифесте: если пакет равен базовому `dev.continuum.antigravity`, второй дублирующий запуск `aapt` опускается. Если имя пакета отличается (например, `dev.continuum.antigravity.dev`), генерируется второй фоллбэк `dev.continuum.antigravity.R` через `--custom-package dev.continuum.antigravity` для совместимости со старыми вызовами.
+### Step 02: R.java Generation (`02_r_java.sh`)
+- Runs `aapt package -m -J <gen_dir>` to parse resources and create numeric IDs with resource overlay support: `-S "$BUILD_DIR/res" -S "$RES_DIR" --auto-add-overlay`.
+- Inspects the package name in the target manifest: if the package matches the default `dev.continuum.antigravity`, the secondary duplicate `aapt` invocation is skipped. If the package name differs (e.g. `dev.continuum.antigravity.dev`), a secondary fallback `dev.continuum.antigravity.R` is generated via `--custom-package dev.continuum.antigravity` for legacy invocation compatibility.
 
-### Шаг 03: Компиляция Java (`03_compile_java.sh`)
-- Собирает список исходников приложения и сгенерированных классов (`BuildConfig`, `R`) в аргументный файл `@$BUILD_DIR/java_sources.txt`, полностью устраняя риск ошибки `ARG_MAX` (`Argument list too long`).
-- Компилирует код компилятором `javac`: `-encoding UTF-8 -source 1.8 -target 1.8 -cp tools/android.jar @$BUILD_DIR/java_sources.txt`.
+### Step 03: Java Compilation (`03_compile_java.sh`)
+- Gathers the list of application sources and generated classes (`BuildConfig`, `R`) into an argument file `@$BUILD_DIR/java_sources.txt`, eliminating the risk of `ARG_MAX` (`Argument list too long`) errors.
+- Compiles source code with `javac`: `-encoding UTF-8 -source 1.8 -target 1.8 -cp tools/android.jar @$BUILD_DIR/java_sources.txt`.
 
-### Шаг 04: Дексирование D8 (`04_dex.sh`)
-- Сканирует директорию классов `$OBJ_DIR` и генерирует аргументный файл `@$BUILD_DIR/class_files.txt`, устраняя ограничение на размер командной строки.
-- Преобразует скомпилированные `.class` файлы в `classes.dex` через автономный D8 (`com.android.tools.r8.D8` из `tools/r8.jar`).
-- Параметры: `--output $DEX_DIR`, `--lib tools/android.jar`, `--min-api 24`, `@$BUILD_DIR/class_files.txt`.
+### Step 04: D8 Dexing (`04_dex.sh`)
+- Scans the compiled class directory `$OBJ_DIR` and generates an argument file `@$BUILD_DIR/class_files.txt`, removing command-line length limitations.
+- Converts compiled `.class` files into `classes.dex` using standalone D8 (`com.android.tools.r8.D8` from `tools/r8.jar`).
+- Arguments: `--output $DEX_DIR`, `--lib tools/android.jar`, `--min-api 24`, `@$BUILD_DIR/class_files.txt`.
 
-### Шаг 05: Стейджинг ассетов (`05_stage_assets.py`)
-- Собирает три группы ресурсов в `build/staging/assets/`:
-  1. `runtime/`: бинарное ядро `language_server` (пропатченное и криптографически проверенное через `prepare_runtime.py`).
-  2. `web/`: фронтенд-интерфейс (`index.html`, `compiled_tailwind.css`, `generated/main.js` и т.д.). Перед копированием автоматически вызывает сборку бандлов `bash web/build.sh`, гарантируя актуальность веб-ресурсов из `web/src/`. Исключает служебные файлы (`main.js`, `src/`, `tests/`, `build.sh`, `patch_main.py`, а также `src.manifest`) через фильтр `web_ignore`.
-  3. `env/`: оверлеи окружения, `libtermux-exec.so` и `manifest.json`.
+### Step 05: Asset Staging (`05_stage_assets.py`)
+- Collects three resource bundles into `build/staging/assets/`:
+  1. `runtime/`: the `language_server` binary core (patched and cryptographically verified via `prepare_runtime.py`).
+  2. `web/`: frontend web interface (`index.html`, `compiled_tailwind.css`, `generated/main.js`, etc.). Before copying, automatically triggers `bash web/build.sh` to ensure bundle freshness from `web/src/`. Excludes development files (`main.js`, `src/`, `tests/`, `build.sh`, `patch_main.py`, and `src.manifest`) via the `web_ignore` filter.
+  3. `env/`: userspace overlays, `libtermux-exec.so`, and `manifest.json`.
 
-### Шаг 06: Упаковка APK (`06_package.sh`)
-- `aapt package -f` формирует каркас APK с поддержкой оверлея ресурсов (`-S "$BUILD_DIR/res" -S "$RES_DIR" --auto-add-overlay`), бинарным `AndroidManifest.xml` и скомпилированными ресурсами (`resources.arsc`).
-- Потоковый Python ZIP-инжектор добавляет `classes.dex` и дерево `assets/`.
-- Файлы, уже сжатые алгоритмами gzip/png/jpeg/zip, сохраняются без повторного сжатия (`ZIP_STORED`), остальные сжимаются через `ZIP_DEFLATED`.
+### Step 06: APK Packaging (`06_package.sh`)
+- `aapt package -f` constructs the APK skeleton with resource overlay support (`-S "$BUILD_DIR/res" -S "$RES_DIR" --auto-add-overlay`), binary `AndroidManifest.xml`, and compiled resources (`resources.arsc`).
+- A streaming Python ZIP injector appends `classes.dex` and the `assets/` tree.
+- Files already compressed with gzip/png/jpeg/zip algorithms are stored uncompressed (`ZIP_STORED`), while remaining files are compressed via `ZIP_DEFLATED`.
 
-### Шаг 07: Выравнивание ZipAlign (`align.py`)
-- Выравнивает заголовки некомпилированных данных на границу 4 байт (и 4096 байт для библиотек `.so`), чтобы ОС Android могла обращаться к файлам напрямую через `mmap()` без распаковки в RAM.
-- **Двухуровневая стратегия**:
-  1. Системный бинарник `zipalign` (если установлен в `$PATH`).
-  2. Встроенный кроссплатформенный чистый Python-алгоритм без внешних зависимостей.
+### Step 07: ZipAlign Alignment (`align.py`)
+- Aligns uncompressed data headers on 4-byte boundaries (and 4096-byte boundaries for `.so` shared libraries), enabling the Android OS to access files directly via `mmap()` without allocating decompression buffers in RAM.
+- **Two-Tier Strategy**:
+  1. System `zipalign` binary (if available in `$PATH`).
+  2. Built-in, cross-platform pure-Python alignment engine without external dependencies.
 
-### Шаги 08 и 09: Подпись и проверка (`08_sign.sh` & `09_verify.sh`)
-- `apksigner sign` подписывает APK ключом из `tools/debug.keystore`.
-- Поддерживаются схемы:
-  - **v1**: JAR-сигнатура (совместимость).
+### Steps 08 and 09: Signing and Verification (`08_sign.sh` & `09_verify.sh`)
+- `apksigner sign` signs the APK using keys from `tools/debug.keystore`.
+- Supported signing schemes:
+  - **v1**: JAR signature (backward compatibility).
   - **v2**: APK Signature Scheme v2 (Android 7.0+).
   - **v3**: APK Signature Scheme v3 (Android 9.0+).
-- `apksigner verify --verbose` производит верификацию сигнатуры и дайджестов манифеста.
+- `apksigner verify --verbose` verifies signature validity and manifest digests.
 
 ---
 
-## 4. Зависимости и инструменты
+## 4. Dependencies and Tools
 
-| Инструмент | Минимальная версия | Назначение | Расположение |
+| Tool | Minimum Version | Purpose | Location |
 |---|---|---|---|
-| **Python** | 3.8+ | Конфигурация, стейджинг, упаковка, ZipAlign | Системный `$PATH` |
-| **aapt** | v0.2+ (v1) | Парсинг XML, компиляция ресурсов, каркас APK | Системный `$PATH` |
-| **javac** | OpenJDK 8 / 11 / 17 | Компиляция `.java` -> `.class` | Системный `$PATH` |
-| **java** | JRE 8+ | Запуск R8/D8 | Системный `$PATH` |
-| **r8.jar** | Android R8/D8 | Дексер (bytecode -> DEX) | `tools/r8.jar` |
-| **android.jar** | API 24+ (актуально API 28) | Android Framework Stubs | `tools/android.jar` |
-| **zipalign** | Любая (опционально) | Быстрое нативное выравнивание | Системный `$PATH` |
-| **apksigner** | 0.9+ | Подпись и проверка APK | Системный `$PATH` |
-| **debug.keystore**| JKS/PKCS12 | Тестовый сертификат подписи | `tools/debug.keystore` |
+| **Python** | 3.8+ | Configuration, staging, packaging, ZipAlign | System `$PATH` |
+| **aapt** | v0.2+ (v1) | XML parsing, resource compilation, APK skeleton | System `$PATH` |
+| **javac** | OpenJDK 8 / 11 / 17 | Compiling `.java` -> `.class` | System `$PATH` |
+| **java** | JRE 8+ | Running R8/D8 | System `$PATH` |
+| **r8.jar** | Android R8/D8 | Dexer (bytecode -> DEX) | `tools/r8.jar` |
+| **android.jar** | API 24+ (target API 28) | Android Framework Stubs | `tools/android.jar` |
+| **zipalign** | Any (optional) | Fast native ZIP alignment | System `$PATH` |
+| **apksigner** | 0.9+ | APK signing and verification | System `$PATH` |
+| **debug.keystore**| JKS/PKCS12 | Test signing certificate | `tools/debug.keystore` |
 
 ---
 
-## 5. Использование
+## 5. Usage
 
 ```bash
-# Стандартная сборка релизного APK (dist/antigravity.apk, порт 45157):
+# Standard release APK build (dist/antigravity.apk, port 45157):
 bash modules/builder/build_apk.sh
 
-# Сборка релизной версии с обходом проверок (dist/antigravity-region-bypass.apk, порт 45157):
+# Build release APK with region bypass (dist/antigravity-region-bypass.apk, port 45157):
 bash modules/builder/build_apk.sh --region-bypass
 
-# Запуск тестов модуля builder:
+# Run builder module test suite:
 bash modules/builder/tests/run_all.sh
 ```
 
 ---
 
-## 6. Результаты аудита: баги, костыли и оптимизации
+## 6. Audit Findings: Bugs, Workarounds, and Optimizations
 
-### 1. Критический баг в `align.py` (исправлен)
-- **Проблема**: В чистой Python-реализации `align_with_python` для каждого элемента вызывался метод `zin.read()`. Этот метод распаковывает сжатые потоки `ZIP_DEFLATED`. Затем эти распакованные байты записывались в выходной файл с исходными заголовками `compress_type=8` и размером `compress_size`. В результате при отсутствии бинарника `zipalign` любой собранный APK был полностью поврежден (`zlib.error: invalid stored block lengths`).
-- **Исправление**: Метод переписан на прямое чтение сырого потока сжатых байт (`raw payload`) по смещению локального заголовка с буферизацией чанками по 64 КБ. Повреждение данных устранено, потребление RAM снижено с O(N) до O(1).
+### 1. Critical Bug in `align.py` (Resolved)
+- **Problem**: In the pure-Python `align_with_python` implementation, the `zin.read()` method was invoked for each archive entry. This method decompresses `ZIP_DEFLATED` streams. The decompressed bytes were then written to the output file while retaining original headers with `compress_type=8` and original `compress_size`. As a result, when the `zipalign` binary was unavailable, generated APKs were corrupted (`zlib.error: invalid stored block lengths`).
+- **Fix**: Rewrote the routine to stream raw compressed bytes directly (`raw payload`) based on local header offsets using 64 KB chunked buffering. Archive corruption was eliminated, and RAM usage dropped from O(N) to O(1).
 
-### 2. Загрязнение исходного кода (`gen.xml`) (исправлено)
-- **Проблема**: `01_gen_config.py` записывал `gen.xml` напрямую в каталог репозитория `app/src/main/res/values/gen.xml`, что приводило к загрязнению `git status` и риску случайного коммита dev-конфигурации.
-- **Исправление**: Перенос генерации в дерево сборки `$BUILD_DIR/res/values/gen.xml`. В `02_r_java.sh` и `06_package.sh` добавлена поддержка ресурсного оверлея `-S "$BUILD_DIR/res" -S "$RES_DIR" --auto-add-overlay`, благодаря чему сгенерированные значения подставляются динамически, а рабочее дерево Git остается чистым.
+### 2. Source Tree Pollution (`gen.xml`) (Resolved)
+- **Problem**: `01_gen_config.py` wrote `gen.xml` directly into the repository directory `app/src/main/res/values/gen.xml`, polluting `git status` and risking accidental commits of dev configuration.
+- **Fix**: Relocated generation to the build tree `$BUILD_DIR/res/values/gen.xml`. Added resource overlay support `-S "$BUILD_DIR/res" -S "$RES_DIR" --auto-add-overlay` to `02_r_java.sh` and `06_package.sh`, allowing generated values to be injected dynamically while keeping the Git working tree clean.
 
-### 3. Двойной прогон `aapt` в `02_r_java.sh` (исправлено)
-- **Проблема**: В релизном режиме `aapt` запускался дважды с идентичными параметрами (`dev.continuum.antigravity`), создавая избыточную нагрузку на CPU.
-- **Исправление**: В `02_r_java.sh` добавлена проверка манифеста (`PKG=$(sed -n -E 's/.*package="([^"]+)".*/\1/p' "$MANIFEST" | head -n 1)`). Если целевой пакет уже равен `dev.continuum.antigravity`, повторный запуск пропускается. Если пакет отличается (например, `dev.continuum.antigravity.dev`), выполняется генерация обоих пакетов (`dev.continuum.antigravity.dev.R` и совместимого фоллбэка `dev.continuum.antigravity.R`).
+### 3. Redundant `aapt` Pass in `02_r_java.sh` (Resolved)
+- **Problem**: In release mode, `aapt` executed twice with identical parameters (`dev.continuum.antigravity`), generating unnecessary CPU overhead.
+- **Fix**: Added manifest inspection to `02_r_java.sh` (`PKG=$(sed -n -E 's/.*package="([^"]+)".*/\1/p' "$MANIFEST" | head -n 1)`). If the target package is already `dev.continuum.antigravity`, the duplicate run is skipped. If the package differs (e.g. `dev.continuum.antigravity.dev`), both packages are generated (`dev.continuum.antigravity.dev.R` and compatibility fallback `dev.continuum.antigravity.R`).
 
-### 4. Риск переполнения командной строки (`ARG_MAX`) (исправлено)
-- **Проблема**: В `03_compile_java.sh` и `04_dex.sh` все исходные файлы и классы подставлялись массивами bash `${JAVA_SOURCES[@]}` и `${CLASS_FILES[@]}`. При масштабировании кодовой базы это вызывало системную ошибку ядра Linux `Argument list too long` (`E2BIG`).
-- **Исправление**:
-  - Для `javac` в `03_compile_java.sh`: сформирован аргументный файл `@$BUILD_DIR/java_sources.txt`, в который записываются все пути с экранированием.
-  - Для `D8` в `04_dex.sh`: сканируется `$OBJ_DIR` и генерируется аргументный файл `@$BUILD_DIR/class_files.txt`, передаваемый в `com.android.tools.r8.D8` (устраняя ограничение длины команды и обходя несовместимость D8 с передачей сырых каталогов).
+### 4. Command Line Overflow Risk (`ARG_MAX`) (Resolved)
+- **Problem**: In `03_compile_java.sh` and `04_dex.sh`, source files and classes were expanded directly into bash arrays `${JAVA_SOURCES[@]}` and `${CLASS_FILES[@]}`. As the codebase grew, this caused Linux kernel `Argument list too long` (`E2BIG`) errors.
+- **Fix**:
+  - For `javac` in `03_compile_java.sh`: generated an argument file `@$BUILD_DIR/java_sources.txt` containing escaped paths.
+  - For `D8` in `04_dex.sh`: scanned `$OBJ_DIR` and generated an argument file `@$BUILD_DIR/class_files.txt` passed to `com.android.tools.r8.D8` (resolving command length limits and working around D8 incompatibilities with raw directory paths).
 
-### 5. Множественные запуски JVM (JVM Overhead)
-- **Проблема**: Конвейер запускает виртуальную машину Java 4 раза подряд (`javac`, `d8`, `apksigner sign`, `apksigner verify`). На мобильном CPU каждый запуск JVM занимает 0.8–1.5 секунды.
-- **Решение**: Объединение фаз подписи и верификации, использование объединенных скриптов или демона компиляции.
+### 5. Multiple JVM Invocations (JVM Overhead)
+- **Problem**: The pipeline invokes the Java Virtual Machine 4 consecutive times (`javac`, `d8`, `apksigner sign`, `apksigner verify`). On mobile CPUs, each JVM startup takes 0.8–1.5 seconds.
+- **Recommendation**: Combine the signing and verification steps, or implement a unified build runner / daemon.
 
-### 6. Неработающий флаг `--fast`
-- **Проблема**: Флаг `--fast` парсился в `build_apk.sh`, но не передавался в дочерние скрипты. При каждом запуске директория `build/` полностью удалялась (`rm -rf`), повторно копируя и перепаковывая ~240 МБ ассетов.
-- **Решение**: Проброс флага `FAST_BUILD` в `05_stage_assets.py` и `06_package.sh` для инкрементальной сборки и пропуска неизменившихся ассетов ядра.
+### 6. Non-functional `--fast` Flag
+- **Problem**: The `--fast` flag was parsed in `build_apk.sh` but never propagated to child scripts. On every execution, the `build/` directory was completely deleted (`rm -rf`), forcing repeated copying and repacking of ~240 MB of assets.
+- **Recommendation**: Forward `FAST_BUILD` to `05_stage_assets.py` and `06_package.sh` to enable incremental asset packaging and skip unmodified core binaries.
 
-### 7. Избыточный дисковый I/O на флеш-памяти
-- **Проблема**: Полная запись APK на диск выполняется 3 раза подряд: `unaligned.apk` (~103 МБ) -> `aligned.apk` (~103 МБ) -> `dist/antigravity.apk` (~103 МБ). Суммарная запись >300 МБ изнашивает flash-память Android-устройства.
-- **Решение**: Выполнять `align.py` сразу в целевой файл `$DIST_DIR/antigravity.apk` и подписывать его на месте (`in-place signing`).
+### 7. Redundant Disk I/O on Flash Storage
+- **Problem**: Full APK disk writes occur 3 times consecutively: `unaligned.apk` (~103 MB) -> `aligned.apk` (~103 MB) -> `dist/antigravity.apk` (~103 MB). Writing over 300 MB per build cycle causes unnecessary flash storage wear on Android devices.
+- **Recommendation**: Output `align.py` directly into the final target `$DIST_DIR/antigravity.apk` and sign it in-place.
 
-### 8. Интеграция веб-сборщика и предотвращение утечки манифестов (исправлено)
-- **Проблема**: В `05_stage_assets.py` веб-ассеты копировались «как есть» из `web/` без предварительного запуска сборки, из-за чего изменения в `web/src/` могли не попадать в APK. Кроме того, в фильтре `web_ignore` отсутствовал `src.manifest`, в результате чего манифест исходников попадал в ресурсы APK.
-- **Исправление**: В `05_stage_assets.py` внедрен автоматический запуск `bash web/build.sh` перед стадированием ассетов, а файл `src.manifest` добавлен в список игнорирования `web_ignore`.
+### 8. Web Build Integration and Manifest Leak Prevention (Resolved)
+- **Problem**: In `05_stage_assets.py`, web assets were copied "as-is" from `web/` without triggering a prior build, which risked shipping stale assets when `web/src/` changed. Additionally, `src.manifest` was missing from `web_ignore`, causing internal source manifests to leak into the APK.
+- **Fix**: Injected automatic execution of `bash web/build.sh` prior to asset staging in `05_stage_assets.py`, and added `src.manifest` to the `web_ignore` list.

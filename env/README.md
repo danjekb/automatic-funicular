@@ -1,272 +1,271 @@
-# Архитектура и Аудит Окружения Antigravity (env/)
+# Antigravity Environment Architecture and Audit (`env/`)
 
 > [!NOTE]
-> Данный документ является официальной технической спецификацией и отчетом по аудиту корневого пространства `env/` в Antigravity (AGY v2).
-> Он описывает состав rootfs, принципы работы пакетного менеджера `pkg`, систему динамического переписывания путей Android/Termux, механизмы совместимости ARMv8.1-A+ (LSE), а также выявленные костыли, узкие места и рекомендации по оптимизации.
+> This document is the official technical specification and audit report for the rootfs userspace environment in `env/` of Antigravity (AGY v2).
+> It details the rootfs composition, the internals of the `pkg` package manager, the dynamic Android/Termux path translation subsystem, ARMv8.1-A+ (LSE) compatibility mechanisms, identified workarounds, performance bottlenecks, and optimization recommendations.
 
 ---
 
-## 1. Состав и Структура Rootfs (`env/`)
+## 1. Composition and Structure of Rootfs (`env/`)
 
-Окружение `env/` представляет собой легковесную, самодостаточную среду userspace Bionic на базе ARM64 (`aarch64`), предназначенную для работы внутри песочницы приложения Android без необходимости прав суперпользователя (`root`) или эмуляторов с перехватом системных вызовов (`proot` / `ptrace`).
+The `env/` environment provides a lightweight, self-contained ARM64 (`aarch64`) Bionic userspace designed to run within the Android application sandbox without requiring superuser (`root`) privileges or ptrace-based syscall emulation layers (`proot` / `ptrace`).
 
-### Карта каталогов
+### Directory Tree
 
 ```
 env/
-├── README.md               # Данная техническая документация и отчет по аудиту
-├── README                  # Базовое описание старого формата
-├── build.sh                # Главный скрипт сборки и упаковки ассетов в dist/env
-├── bootstrap/              # Базовый архив rootfs и утилиты модификации
-│   ├── bootstrap-aarch64.zip # Исходный бинарный zip-архив Termux bootstrap
-│   ├── bootstrap.tar.gz      # Оптимизированный tar.gz (symlinks, pruned docs)
-│   └── patch-prefix.py       # (Legacy) Скрипт бинарного патчинга ELF для dpkg
-├── packages/               # Дополнительные пакеты, вшиваемые в bootstrap
-│   └── git.deb             # Предварительно подготовленный пакет Git для автономности
-├── overlay/                # Наложение файлов поверх $PREFIX (etc, bin, lib)
-│   ├── bin/                # Системные скрипты и утилиты AGY
-│   │   ├── agy-daemon      # Фоновый автономный диспетчер задач и планировщик
-│   │   ├── agy-fix-paths   # Утилита динамической нормализации шебангов и путей
-│   │   ├── agy-notify      # Утилита управления системными уведомлениями Android
-│   │   ├── agy-upgrade     # Менеджер безопасного обновления, бэкапа и миграций
-│   │   ├── rish            # Клиент Shizuku для привилегированного шелла (uid=2000)
-│   │   └── cs              # Заглушка для language server
-│   ├── etc/                # Системная конфигурация
-│   │   ├── antigravity/    # AGENTS.md (глобальные правила агента)
-│   │   ├── pkg/repo.conf   # Конфигурация репозиториев pkg (зеркала Termux)
-│   │   ├── profile.d/      # Скрипты инициализации оболочки (00-env.sh)
-│   │   ├── tls/            # Сертификаты cert.pem и конфигурация openssl.cnf
-│   │   ├── hosts           # Базовая таблица разрешения имен localhost
-│   │   ├── motd            # Приветственное сообщение терминала
-│   │   ├── profile         # Корневой профиль bash-сессии
-│   │   └── resolv.conf     # Публичные DNS-серверы (1.1.1.1, 8.8.8.8)
-│   └── lib/                # Системные разделяемые библиотеки
-│       ├── libtermux-exec.so # Библиотека перехвата execve для трансляции путей
-│       └── daemon/         # Модули Python для реализации agy-daemon
-├── pkg/                    # Автономный пакетный менеджер pkg (Bash + AWK)
-│   ├── pkg                 # Исполняемый интерфейс командной строки (CLI)
-│   └── lib/                # Модульная библиотека функций pkg
-│       ├── util.sh         # Утилиты, переменные окружения, rewrite_prefix
-│       ├── deb.sh          # Парсинг ar/.deb архивов и распаковка без ar
-│       ├── db.sh           # Локальная база установленных пакетов (.meta, .files)
-│       ├── fetch.sh        # Загрузка по HTTP(S) с проверкой sha256 и прогрессом
-│       ├── index.sh        # Работа с индексами Packages и генерация TSV
-│       ├── index.awk       # AWK-парсер debian stanzas в формат TSV
-│       ├── resolver.sh     # Рекурсивный граф зависимостей и валидация циклов
-│       ├── version.sh      # Обертки сравнения версий Debian
-│       └── vercmp.awk      # Реализация семантики dpkg vercmp на чистом AWK
-├── liblse_compat/          # Модуль эмуляции инструкций ARMv8.1-A+ (LSE, SIMD)
-│   ├── liblse_compat.c     # Исходный код перехвата SIGILL и софтверной эмуляции
-│   ├── liblse_compat.so    # Скомпилированная разделяемая библиотека
-│   └── build.sh            # Скрипт сборки liblse_compat.so
-├── repo/                   # Локальный каталог кэша репозиториев (по умолчанию пуст)
-├── scripts/                # Инженерные скрипты сопровождения
-│   ├── pack_bootstrap.py   # Конвертер zip -> tar.gz с очисткой doc/man и инъекцией extra-deb
-│   └── make_manifest.py    # Генератор детерминированного manifest.json для проверки целостности
-├── dist/                   # Результат сборки assets для включения в APK
-│   └── env/                # Зеркало assets/env (bootstrap, overlay, pkg, manifest.json)
-└── tests/                  # Комплексный набор тестов
-    ├── fixtures/           # Тестовые фикстуры (hello.deb, Packages)
-    ├── selftest            # Автономное тестирование pkg (vercmp, db, resolver, deb)
-    ├── invariant           # Проверка целостности ассетов и симлинков 1:1
-    └── e3                  # E2E-тест развертывания rootfs во временный каталог и запуска
-
+├── README.md               # Technical specification and audit report (this document)
+├── README                  # Legacy format baseline overview
+├── build.sh                # Main build script for asset packaging into dist/env
+├── bootstrap/              # Base rootfs archive and modification utilities
+│   ├── bootstrap-aarch64.zip # Original upstream Termux bootstrap archive
+│   ├── bootstrap.tar.gz      # Optimized tar.gz (symlinks, pruned docs/man)
+│   └── patch-prefix.py       # (Legacy) Binary ELF patching script for dpkg
+├── packages/               # Additional packages bundled directly into bootstrap
+│   └── git.deb             # Pre-staged Git package for offline operation
+├── overlay/                # File overlay applied over $PREFIX (etc, bin, lib)
+│   ├── bin/                # AGY system scripts and CLI utilities
+│   │   ├── agy-daemon      # Background task supervisor and scheduler
+│   │   ├── agy-fix-paths   # Dynamic path and shebang normalization utility
+│   │   ├── agy-notify      # Android system notification management tool
+│   │   ├── agy-upgrade     # Safe updater, backup, and migration manager
+│   │   ├── rish            # Shizuku client for privileged ADB shell access (uid=2000)
+│   │   └── cs              # Language server compatibility shim
+│   ├── etc/                # System configuration files
+│   │   ├── antigravity/    # AGENTS.md (global agent instructions and rules)
+│   │   ├── pkg/repo.conf   # Repository configuration for pkg (Termux mirrors)
+│   │   ├── profile.d/      # Shell startup hooks (00-env.sh)
+│   │   ├── tls/            # Certificate bundle cert.pem and openssl.cnf
+│   │   ├── hosts           # Localhost resolution table
+│   │   ├── motd            # Terminal message of the day
+│   │   ├── profile         # Root bash profile
+│   │   └── resolv.conf     # Public fallback DNS servers (1.1.1.1, 8.8.8.8)
+│   └── lib/                # Shared userspace libraries
+│       ├── libtermux-exec.so # execve interceptor library for path redirection
+│       └── daemon/         # Python support modules for agy-daemon
+├── pkg/                    # Autonomous pkg package manager (Bash + AWK)
+│   ├── pkg                 # Command-line interface (CLI) entry point
+│   └── lib/                # Modular library functions for pkg
+│       ├── util.sh         # Utilities, environment vars, rewrite_prefix
+│       ├── deb.sh          # ar/.deb parsing and extraction without ar
+│       ├── db.sh           # Local package database (.meta, .files)
+│       ├── fetch.sh        # HTTP(S) downloader with sha256 validation and progress
+│       ├── index.sh        # Packages index parsing and TSV cache generation
+│       ├── index.awk       # AWK parser converting Debian control stanzas to TSV
+│       ├── resolver.sh     # Recursive dependency graph resolution and cycle detection
+│       ├── version.sh      # Debian version comparison wrappers
+│       └── vercmp.awk      # Pure AWK implementation of dpkg vercmp semantics
+├── liblse_compat/          # ARMv8.1-A+ (LSE, SIMD) instruction emulation module
+│   ├── liblse_compat.c     # Source code for SIGILL interception and instruction decoding
+│   ├── liblse_compat.so    # Compiled shared library
+│   └── build.sh            # Build script for liblse_compat.so
+├── repo/                   # Local repository cache directory (empty by default)
+├── scripts/                # Engineering maintenance scripts
+│   ├── pack_bootstrap.py   # Converter: zip -> tar.gz with doc/man pruning and extra .deb injection
+│   └── make_manifest.py    # Deterministic manifest.json generator for integrity verification
+├── dist/                   # Build artifacts ready for APK packaging
+│   └── env/                # Mirror of assets/env (bootstrap, overlay, pkg, manifest.json)
+└── tests/                  # Automated test suite
+    ├── fixtures/           # Test fixtures (hello.deb, Packages)
+    ├── selftest            # Offline pkg self-test (vercmp, db, resolver, deb)
+    ├── invariant           # Asset and symlink 1:1 integrity check
+    └── e3                  # End-to-end sandbox deployment and execution test
 ```
 
-### Размещение в памяти и песочнице Android
+### Sandbox Layout in Android Storage
 
-При запуске приложения Android класс `dev.continuum.antigravity.install.EnvInstaller` распаковывает ассеты в изолированное файловое пространство приложения:
-- **`$HOME`**: `/data/user/<id>/<package_id>/files` (или `/data/data/<package_id>/files` на старых версиях Android).
-- **`$PREFIX`**: `$HOME/usr` — корень Bionic rootfs.
-- **`$PREFIX/bin`**: исполняемые файлы (`bash`, `sh`, `git`, `pkg`, `agy-daemon` и др.).
-- **`$PREFIX/lib`**: разделяемые библиотеки Bionic (`libtermux-exec.so`).
-- **`$PREFIX/etc`**: конфигурационные файлы, включая TLS-сертификаты (`etc/tls/cert.pem`).
-- **`$PREFIX/libexec/pkg`**: системные модули менеджера `pkg`.
-- **`$PREFIX/var/lib/pkg`**: база данных установленных пакетов (`installed/`), кэш `.deb` (`cache/`) и индексы (`index/`).
+Upon application startup, `dev.continuum.antigravity.install.EnvInstaller` unpacks bundled assets into the application's isolated sandbox:
+- **`$HOME`**: `/data/user/<id>/<package_id>/files` (or `/data/data/<package_id>/files` on older Android releases).
+- **`$PREFIX`**: `$HOME/usr` — root of the Bionic rootfs.
+- **`$PREFIX/bin`**: executables (`bash`, `sh`, `git`, `pkg`, `agy-daemon`, etc.).
+- **`$PREFIX/lib`**: Bionic shared libraries (`libtermux-exec.so`).
+- **`$PREFIX/etc`**: configuration files and TLS certificates (`etc/tls/cert.pem`).
+- **`$PREFIX/libexec/pkg`**: internal `pkg` engine scripts.
+- **`$PREFIX/var/lib/pkg`**: package database (`installed/`), cached `.deb` archives (`cache/`), and compiled indices (`index/`).
 
 ---
 
-## 2. Логика и Архитектура Пакетного Менеджера `pkg`
+## 2. Architecture and Logic of the `pkg` Package Manager
 
-Менеджер пакетов `pkg` спроектирован для полного устранения зависимости от тяжелых утилит `dpkg`, `apt`, `ar` и `python` на этапе работы в терминале. Он написан исключительно на POSIX-совместимом `Bash` и `AWK`.
+The `pkg` package manager is engineered to completely remove runtime dependencies on heavy utilities such as `dpkg`, `apt`, `ar`, and `python` inside the terminal environment. It is written entirely in POSIX-compliant `Bash` and `AWK`.
 
-### Поддерживаемые команды
-| Команда | Описание |
+### Supported Commands
+| Command | Description |
 | :--- | :--- |
-| `pkg update` | Скачивание `Packages.gz` из зеркал Termux, распаковка в `repo.N.Packages` и компиляция в оптимизированный TSV-индекс `index.awk`. |
-| `pkg install <pkg...>` | Разрешение графа зависимостей (DFS), загрузка `.deb`, валидация SHA256, извлечение, динамическое переписывание путей (`rewrite_prefix`), регистрация в БД и генерация мостов `runtime/bin`. |
-| `pkg upgrade` | Сравнение версий установленных пакетов с репозиторием (`deb_vercmp`), обновление устаревших пакетов. |
-| `pkg remove <pkg...>` | Чтение `.files`, безопасное удаление файлов пакета и пустых родительских каталогов, удаление `.meta`. |
-| `pkg list [regex]` | Вывод всех доступных пакетов из TSV-индексов с фильтрацией. |
-| `pkg installed` | Список локально установленных пакетов и их версий. |
-| `pkg info <pkg>` | Подробные метаданные пакета (размер, архитектура, зависимости, хэш, провайдеры). |
-| `pkg search <query>` | Поиск пакетов по подстроке/регулярному выражению. |
-| `pkg why <file>` | Определение пакета-владельца указанного файла через реверсивный поиск по `.files`. |
-| `pkg clean` | Очистка загруженных архивов `.deb` в `$PKG_CACHE`. |
-| `pkg selftest` | Встроенный оффлайн-тест целостности шелла, сертификатов и конфигурации репозиториев. |
+| `pkg update` | Downloads `Packages.gz` from Termux mirrors, extracts them into `repo.N.Packages`, and compiles an optimized TSV index via `index.awk`. |
+| `pkg install <pkg...>` | Resolves the dependency graph (DFS), downloads `.deb` archives, validates SHA256 sums, extracts files, dynamically rewrites prefixes (`rewrite_prefix`), registers metadata in the DB, and creates bridge links in `runtime/bin`. |
+| `pkg upgrade` | Compares installed package versions against repository indices (`deb_vercmp`) and upgrades outdated packages. |
+| `pkg remove <pkg...>` | Inspects `.files`, safely deletes package files and empty parent directories, and cleans up `.meta`. |
+| `pkg list [regex]` | Lists all available packages from TSV indices with regex filtering. |
+| `pkg installed` | Lists locally installed packages and their current versions. |
+| `pkg info <pkg>` | Displays full package metadata (size, architecture, dependencies, checksum, providers). |
+| `pkg search <query>` | Searches packages by name substring or regular expression. |
+| `pkg why <file>` | Identifies which package owns the specified file via reverse lookup in `.files`. |
+| `pkg clean` | Purges cached `.deb` archives from `$PKG_CACHE`. |
+| `pkg selftest` | Runs an offline test verifying shell environment, certificates, and repository configuration. |
 
-### Механизм разрешения зависимостей (`resolver.sh`)
-Разрешение зависимостей работает на базе топологической сортировки и поиска в глубину (DFS):
-1. **Предотвращение циклов:** Поддерживаются каталоги состояний `$work/doing/<pkg>` и `$work/done/<pkg>`. Если алгоритм повторно заходит в вершину с меткой `doing`, фиксируется циклическая зависимость и операция безопасно прерывается без частичной установки.
-2. **Виртуальные пакеты (`Provides`):** Если пакет не найден по имени, функция `index_provider` сканирует столбец `Provides` в индексах репозиториев.
-3. **Ограничения версий:** Условия вида `(>= 1.0)`, `(<< 2.0)`, `(= 1.2)` парсятся и валидируются через AWK-реализацию `deb_vercmp`.
+### Dependency Resolution Mechanism (`resolver.sh`)
+Dependency resolution relies on topological sorting and depth-first search (DFS):
+1. **Cycle Prevention:** State directories `$work/doing/<pkg>` and `$work/done/<pkg>` track traversal status. If DFS encounters a node already marked `doing`, a cyclic dependency is reported and the transaction safely aborts without leaving partial installs.
+2. **Virtual Packages (`Provides`):** When a package is not found by exact name, `index_provider` scans the `Provides` column across repository indices.
+3. **Version Constraints:** Constraints such as `(>= 1.0)`, `(<< 2.0)`, and `(= 1.2)` are parsed and evaluated via an AWK implementation of `deb_vercmp`.
 
-### Формат базы данных (`db.sh`)
-Логика хранения предельно минималистична и устойчива к сбоям:
-- `$PKG_DB/<package>.meta`: ключевые поля формата `key=value` (`name`, `version`, `arch`). Запись ведется через атомарный `mv` из временного файла `.tmp`.
-- `$PKG_DB/<package>.files`: сортированный список относительных путей файлов, принадлежащих пакету.
-- Синхронизация с dpkg (`db_sync_dpkg`): при наличии `$PREFIX/var/lib/dpkg/status` (из базового bootstrap) база `pkg` автоматически импортирует предустановленные пакеты без дублирования.
+### Database Format (`db.sh`)
+The storage model is minimalist and resilient against sudden process termination:
+- `$PKG_DB/<package>.meta`: key-value metadata pairs (`name`, `version`, `arch`). Writes are performed atomically via `mv` from a `.tmp` file.
+- `$PKG_DB/<package>.files`: sorted list of relative paths belonging to the package.
+- dpkg Synchronization (`db_sync_dpkg`): when `$PREFIX/var/lib/dpkg/status` is present (from the base bootstrap archive), `pkg` automatically imports pre-installed packages without duplicate entries.
 
 ---
 
-## 3. Динамическая Трансляция Путей Termux/Android
+## 3. Dynamic Termux/Android Path Translation
 
-Поскольку пакеты Termux собираются с жестко зашитым путем `/data/data/com.termux/files/usr`, а приложение AGY работает в произвольном контексте (например, `/data/user/0/dev.continuum.antigravity/files/usr` или `/data/user/10/dev.continuum.antigravity.dev/files/usr`), применяется трехуровневая система адаптации:
+Because upstream Termux packages are pre-compiled with hardcoded paths pointing to `/data/data/com.termux/files/usr`, while AGY runs within arbitrary package sandboxes (e.g. `/data/user/0/dev.continuum.antigravity/files/usr` or `/data/user/10/dev.continuum.antigravity.dev/files/usr`), a three-tiered path translation subsystem is employed:
 
-### Уровни переписывания
+### Translation Hierarchy
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 1. Уровень установки (Install-Time / Java)                  │
+│ 1. Installation Layer (Install-Time / Java)                 │
 │    TermuxShebangRewriter, TermuxPrefixRewriter,             │
-│    TermuxSymlinkFixer в EnvInstaller.java                   │
-│    -> Распаковка, нормализация путей и прав chmod           │
+│    TermuxSymlinkFixer in EnvInstaller.java                  │
+│    -> Extraction, path normalization, and chmod permissions │
 ├─────────────────────────────────────────────────────────────┤
-│ 2. Уровень среды исполнения (Runtime / LD_PRELOAD)         │
-│    libtermux-exec.so перехватывает execve / execv           │
-│    -> Перенаправляет вызовы /bin/sh и Termux-пути в $PREFIX │
+│ 2. Runtime Execution Layer (Runtime / LD_PRELOAD)           │
+│    libtermux-exec.so intercepts execve / execv              │
+│    -> Redirects /bin/sh and Termux paths to $PREFIX         │
 ├─────────────────────────────────────────────────────────────┤
-│ 3. Уровень динамических пакетов (Post-Install / CLI)        │
-│    - rewrite_prefix в pkg/lib/util.sh                       │
-│    - agy-fix-paths для сторонних pip / npm скриптов         │
-└─────────────────────────────────────────────────────────────┘
+│ 3. Dynamic Package Layer (Post-Install / CLI)               │
+│    - rewrite_prefix in pkg/lib/util.sh                      │
+│    - agy-fix-paths for third-party pip / npm scripts        │
+│ └───────────────────────────────────────────────────────────┘
 ```
 
-1. **`TermuxShebangRewriter` & `TermuxPrefixRewriter` (Java):** При установке или обновлении приложения сканируются каталоги `bin`, `libexec`, `etc`, `share`, `var`. Все текстовые вхождения регулярного выражения `/data/(?:data|user/[0-9]+)/[^/]+/files/usr` заменяются на активный `$PREFIX`.
-2. **`TermuxSymlinkFixer` (Java):** Абсолютные символические ссылки, указывающие на несуществующий префикс `com.termux`, динамически пересоздаются с указанием на локальный `$PREFIX`.
-3. **`libtermux-exec.so` (C / Bionic Hook):** Библиотека внедряется через `LD_PRELOAD` во все дочерние процессы шелла (через `00-env.sh`). Она перехватывает семейство функций `execve`, `execvp`, `fexecve`, подменяя вызовы `/bin/sh` и устаревшие пути Termux на исполняемые файлы активного `$PREFIX/bin`.
-4. **`agy-fix-paths` & `pkg rewrite_prefix` (Bash):** При установке пакетов через `pkg` или установке глобальных CLI-утилит через `pip install` / `npm install -g`, скрипты содержат пути интерпретаторов. `agy-fix-paths` производит безопасное сканирование только текстовых файлов (пропуская бинарники и ELF) и атомарно заменяет пути на текущий `$PREFIX`.
+1. **`TermuxShebangRewriter` & `TermuxPrefixRewriter` (Java):** During application installation or upgrades, the installer scans `bin`, `libexec`, `etc`, `share`, and `var`. All text occurrences matching `/data/(?:data|user/[0-9]+)/[^/]+/files/usr` are replaced with the active `$PREFIX`.
+2. **`TermuxSymlinkFixer` (Java):** Absolute symlinks pointing to non-existent `com.termux` prefixes are dynamically recreated to point to the local `$PREFIX`.
+3. **`libtermux-exec.so` (C / Bionic Hook):** Injected via `LD_PRELOAD` into all child shell processes (via `00-env.sh`). It intercepts `execve`, `execvp`, and `fexecve`, redirecting `/bin/sh` and legacy Termux paths to binaries in the active `$PREFIX/bin`.
+4. **`agy-fix-paths` & `pkg rewrite_prefix` (Bash):** When installing packages via `pkg` or installing global CLI tools via `pip install` / `npm install -g`, generated scripts contain absolute interpreter paths. `agy-fix-paths` safely scans text files only (ignoring binary/ELF files) and atomically rewrites them to the active `$PREFIX`.
 
 ---
 
-## 4. Совместимость с ARMv8.1-A+ и Модуль `liblse_compat`
+## 4. ARMv8.1-A+ Compatibility and the `liblse_compat` Module
 
-### Проблема LSE на мобильных процессорах
-Современные бинарные файлы (включая Go-рантаймы, Node.js, компиляторы и утилиты Core) собираются под современную архитектуру `ARMv8.1-A+` с флагом аппаратных атомиков LSE (Large System Extensions).
-Однако ряд популярных мобильных SoC (например, **Snapdragon 685** на ядрах Cortex-A53 / Redmi Note 12) аппаратно поддерживают только базовый набор инструкций **ARMv8.0-A**. При выполнении инструкций LSE на таких ядрах процессор генерирует исключение **`SIGILL` (Illegal Instruction, сигнал 4)**, приводя к падению приложения с ошибкой:
+### The LSE Issue on Mobile Processors
+Modern binary distributions (including Go runtimes, Node.js, compilers, and Core utilities) are built targeting `ARMv8.1-A+` with Large System Extensions (LSE) hardware atomics enabled.
+However, several widely used mobile SoCs (such as the **Snapdragon 685** with Cortex-A53 cores on the Redmi Note 12) only support the baseline **ARMv8.0-A** instruction set in hardware. Attempting to execute LSE instructions on these cores triggers a **`SIGILL` (Illegal Instruction, Signal 4)** CPU fault, crashing the application with:
 `FATAL ERROR: This binary was compiled with lse enabled`.
 
-### Принцип работы `liblse_compat`
-Библиотека `liblse_compat.so` решает эту проблему прозрачно на уровне ядра Linux без изменения бинарных файлов:
-1. **Установка ядерного обработчика:** Конструктор с наивысшим приоритетом `__attribute__((constructor(101)))` вызывает системный вызов ядра `rt_sigaction(134)` напрямую через ассемблер (`svc #0`), минуя обертки libc. Это гарантирует установку обработчика до запуска других библиотек.
-2. **Защита от перезаписи (`sigaction` hook):** `liblse_compat` экспортирует собственную функцию `sigaction`, перехватывающую попытки гостевых сред (например, рантайма Go или JVM) затереть обработчик `SIGILL`. Пользовательский обработчик сохраняется в `old_sigill_act` и вызывается только в том случае, если упавшая инструкция не принадлежит к эмулируемым.
-3. **Софтверный декодер и эмулятор:**
-   - **FEAT_LSE (ARMv8.1-A):** Эмулирует атомарные операции памяти: `LDADD`, `LDCLR`, `LDEOR`, `LDSET`, `SWP`, знаковые и беззнаковые максимумы/минимумы (`LDSMAX`, `LDSMIN`, `LDUMAX`, `LDUMIN`), а также атомарные Compare-and-Swap (`CAS`, `CASA`, `CASL`, `CASAL`, `CASP`, `CASPA`, `CASPL`, `CASPAL`) с использованием стандартных встроенных атомиков GCC/Clang (`__atomic_fetch_add`, `__atomic_compare_exchange_n`).
-   - **FEAT_LRCPC / LRCPC2 (ARMv8.3-A / 8.4-A):** Эмулирует операции Load-Acquire RCpc: `LDAPR`, `LDAPRB`, `LDAPRH`, `LDAPUR`, `STLUR` с барьерами памяти `__atomic_thread_fence`.
-   - **FEAT_DotProd (ARMv8.2-A / 8.4-A):** Эмулирует векторные и элементные инструкции скалярного произведения `SDOT`, `UDOT` для SIMD-регистров `V0`–`V31` (структура контекста `fpsimd_context`).
-   - **FEAT_RDM (ARMv8.1-A):** Эмулирует векторные операции с округлением и удвоением `SQRDMLAH`, `SQRDMLSH`.
-   - **FEAT_FCMA (ARMv8.3-A):** Эмулирует комплексное векторное сложение и умножение с накоплением `FCADD`, `FCMLA` (для типов `_Float16`, `float`, `double`).
-4. **Смещение PC:** После успешной эмуляции программный счетчик смещается на 4 байта (`uc->uc_mcontext.pc += 4`), и управление немедленно возвращается в прерванный поток.
+### How `liblse_compat` Works
+The `liblse_compat.so` library resolves this transparently at the Linux kernel level without requiring modifications to target binaries:
+1. **Kernel Signal Handler Installation:** A highest-priority constructor `__attribute__((constructor(101)))` issues the raw kernel syscall `rt_sigaction(134)` via inline assembly (`svc #0`), bypassing libc wrappers entirely. This ensures the handler is established before other libraries initialize.
+2. **Override Protection (`sigaction` hook):** `liblse_compat` exports its own `sigaction` symbol, intercepting attempts by guest runtimes (such as Go runtime or the JVM) to overwrite the `SIGILL` handler. The guest handler is stored in `old_sigill_act` and invoked only when a faulting instruction does not belong to the emulated instruction set.
+3. **Software Instruction Decoder and Emulator:**
+   - **FEAT_LSE (ARMv8.1-A):** Emulates atomic memory operations: `LDADD`, `LDCLR`, `LDEOR`, `LDSET`, `SWP`, signed/unsigned min/max (`LDSMAX`, `LDSMIN`, `LDUMAX`, `LDUMIN`), and Compare-and-Swap (`CAS`, `CASA`, `CASL`, `CASAL`, `CASP`, `CASPA`, `CASPL`, `CASPAL`) using GCC/Clang atomic builtins (`__atomic_fetch_add`, `__atomic_compare_exchange_n`).
+   - **FEAT_LRCPC / LRCPC2 (ARMv8.3-A / 8.4-A):** Emulates Load-Acquire RCpc operations: `LDAPR`, `LDAPRB`, `LDAPRH`, `LDAPUR`, and `STLUR` with memory barriers (`__atomic_thread_fence`).
+   - **FEAT_DotProd (ARMv8.2-A / 8.4-A):** Emulates vector and element scalar dot product instructions `SDOT` and `UDOT` for SIMD registers `V0`–`V31` (`fpsimd_context` structure).
+   - **FEAT_RDM (ARMv8.1-A):** Emulates rounding double multiply-accumulate operations `SQRDMLAH` and `SQRDMLSH`.
+   - **FEAT_FCMA (ARMv8.3-A):** Emulates complex vector addition and multiply-accumulate operations `FCADD` and `FCMLA` (for `_Float16`, `float`, and `double`).
+4. **Program Counter Advancement:** Following successful instruction emulation, the program counter is advanced by 4 bytes (`uc->uc_mcontext.pc += 4`), returning control immediately to the interrupted thread.
 
-### Разделение миров: Bionic vs Glibc (Критический аспект)
-В Antigravity сосуществуют две различные среды исполнения:
-1. **Core Language Server / Core Daemon:** Работает под управлением **Glibc** в `runtime/`.
-2. **Терминал, bash, утилиты pkg:** Работают под управлением **Android Bionic libc** в `$PREFIX/`.
+### Separation of Environments: Bionic vs Glibc (Critical Aspect)
+Two distinct execution runtimes coexist in Antigravity:
+1. **Core Language Server / Core Daemon:** Runs under **Glibc** in `runtime/`.
+2. **Terminal, bash, pkg tools:** Run under **Android Bionic libc** in `$PREFIX/`.
 
 > [!WARNING]
-> Текущая сборка `env/liblse_compat/liblse_compat.so` скомпилирована против `libc.so.6` и `libdl.so.2` (GNU Glibc).
-> По этой причине она **НЕ ДОЛЖНА** добавляться в глобальный `LD_PRELOAD` для Bionic-процессов терминала. Если Bionic linker (`linker64`) встречает библиотеку, требующую `libc.so.6`, запуск любого процесса (`/system/bin/sh`, `bash`, `ls`) немедленно аварийно завершается с ошибкой линковки:
+> The current build of `env/liblse_compat/liblse_compat.so` is linked against `libc.so.6` and `libdl.so.2` (GNU Glibc).
+> For this reason, it **MUST NOT** be added to the global `LD_PRELOAD` for Bionic terminal processes. If the Android Bionic linker (`linker64`) encounters a preloaded library requiring `libc.so.6`, any spawned process (`/system/bin/sh`, `bash`, `ls`) terminates immediately with a dynamic link error:
 > `CANNOT LINK EXECUTABLE: library "libc.so.6" not found`.
 >
-> Для Bionic-окружения код `00-env.sh` безопасно проверяет наличие `$PREFIX/lib/liblse_compat.so`, которого там нет. Библиотека `liblse_compat.so` загружается исключительно Glibc-загрузчиком через аргумент `--preload` в `RuntimeManager.java`.
+> In the Bionic environment, `00-env.sh` safely checks for `$PREFIX/lib/liblse_compat.so`, which is not present. The `liblse_compat.so` library is loaded exclusively by the Glibc dynamic loader via the `--preload` argument in `RuntimeManager.java`.
 
 ---
 
-## 5. Результаты Аудита: Выявленные Костыли, Оверхеды и Ошибки
+## 5. Audit Findings: Identified Workarounds, Overhead, and Defects
 
-В ходе глубокого анализа исходных кодов `env/` были зафиксированы следующие замечания:
+In-depth analysis of the `env/` codebase revealed the following issues and bottlenecks:
 
-### 1. Катастрофический оверхед в `pkg/lib/deb.sh` (I/O Bottleneck)
-- **Проблема:** Парсинг формата `ar` в `ar_members` и `ar_member` реализован через цикл вызова внешнего процесса `dd` с размером блока `bs=1` и `count=60` для чтения заголовков каждого файла:
+### 1. Severe Overhead in `pkg/lib/deb.sh` (I/O Bottleneck)
+- **Problem:** Parsing the `ar` archive format in `ar_members` and `ar_member` was implemented by repeatedly executing an external `dd` command with block size `bs=1` and `count=60` to read each file header:
   ```bash
   hdr="$(dd if="$file" bs=1 skip="$off" count=60 2>/dev/null)"
   ```
-  При распаковке пакета `install_one` функция `deb_member_name` вызывается многократно, заново сканируя весь deb-архив с диска через десятки форков `dd`.
-- **Многократная распаковка:** В процессе одной установки пакета `data.tar` распаковывается/сканируется 4 раза:
-  1) `deb_field` распаковывает `control.tar` дважды;
-  2) `deb_validate_data` распаковывает `data.tar` для валидации путей;
-  3) `deb_extract_data` распаковывает `data.tar` в файловую систему;
-  4) `deb_files` распаковывает `data.tar` еще раз для получения списка файлов.
-- **Оценка потерь:** На больших пакетах (от 10 МБ) это создает до 3–7 секунд лишнего времени ожидания и сотни вызовов `fork()/execve()`.
+  During package extraction in `install_one`, `deb_member_name` was invoked multiple times, rescanning the entire `.deb` archive from storage across dozens of `dd` forks.
+- **Redundant Extraction Passes:** During a single package installation, `data.tar` was scanned or unpacked 4 separate times:
+  1) `deb_field` extracted `control.tar` twice;
+  2) `deb_validate_data` unpacked `data.tar` to validate paths;
+  3) `deb_extract_data` extracted `data.tar` onto the filesystem;
+  4) `deb_files` unpacked `data.tar` again to generate the file manifest.
+- **Performance Impact:** On larger packages (10+ MB), this incurred 3–7 seconds of unnecessary delay and hundreds of redundant `fork()/execve()` calls.
 
-### 2. Захардкоженные пути в скриптах `overlay/bin/`
-- **`env/overlay/bin/agy-notify` [ИСПРАВЛЕНО - Заход 1]:**
-  Ранее содержал абсолютный путь разработчика `SRC_LOGO="/storage/emulated/0/Documents/antigravity_release/docs/assets/logo.png"`.
-  Устранен локальный путь; добавлен поиск по `$AGY_LOGO` и стандартным путям ассетов (`$PREFIX/share/antigravity/logo.png`, `$PREFIX/share/pixmaps/antigravity.png`) с безопасным fallback на системную иконку Android при отсутствии файла.
-- **`env/overlay/bin/agy-upgrade` [ИСПРАВЛЕНО - Заход 1]:**
-  Исправлено вычисление пути `HOME`:
-  Ранее ошибочно использовалось `export HOME="${HOME:-/data/user/0/$(basename "$(dirname "$PREFIX")")/files}"`, приводившее к пути вида `/data/user/0/files/files`.
-  Исправлено на стандартное и корректное: `export HOME="${HOME:-$(dirname "$PREFIX")}"`.
-- **Шебанги `dev.continuum.antigravity`:**
-  В файлах `env/pkg/pkg`, `env/overlay/bin/agy-fix-paths`, `env/overlay/bin/agy-notify`, `env/overlay/bin/agy-upgrade` первой строкой указан шебанг:
-  `#!/data/data/dev.continuum.antigravity/files/usr/bin/bash` или `#!/data/user/0/dev.continuum.antigravity/files/usr/bin/bash`.
-  `TermuxShebangRewriter` перезаписывает их при установке APK.
+### 2. Hardcoded Paths in `overlay/bin/` Scripts
+- **`env/overlay/bin/agy-notify` [RESOLVED - Round 1]:**
+  Previously contained a hardcoded developer workstation path: `SRC_LOGO="/storage/emulated/0/Documents/antigravity_release/docs/assets/logo.png"`.
+  The local path was eliminated; replaced with resolution via `$AGY_LOGO` and standard asset paths (`$PREFIX/share/antigravity/logo.png`, `$PREFIX/share/pixmaps/antigravity.png`) with a graceful fallback to the Android system icon when absent.
+- **`env/overlay/bin/agy-upgrade` [RESOLVED - Round 1]:**
+  Fixed `$HOME` path derivation:
+  Previously used `export HOME="${HOME:-/data/user/0/$(basename "$(dirname "$PREFIX")")/files}"`, resulting in paths like `/data/user/0/files/files`.
+  Corrected to the standard expression: `export HOME="${HOME:-$(dirname "$PREFIX")}"`.
+- **Package Specific Shebangs:**
+  In `env/pkg/pkg`, `env/overlay/bin/agy-fix-paths`, `env/overlay/bin/agy-notify`, and `env/overlay/bin/agy-upgrade`, the initial shebang line specified:
+  `#!/data/data/dev.continuum.antigravity/files/usr/bin/bash` or `#!/data/user/0/dev.continuum.antigravity/files/usr/bin/bash`.
+  These are rewritten dynamically by `TermuxShebangRewriter` during APK installation.
 
-### 3. Оверхед генерации мостов в `pkg/pkg` [ИСПРАВЛЕНО - Заход 1]
-- **Проблема:** Ранее при установке каждого пакета скрипт `pkg` выполнял цикл `for bin_file in "$PREFIX/bin"/*; do` и пересканировал все бинарники в `$PREFIX/bin`.
-- **Решение:** Цикл оптимизирован: теперь генерация мостов в `$PREFIX/../runtime/bin` запускается исключительно для бинарников из состава текущего устанавливаемого пакета (`$pkg_files` с префиксом `bin/`), без повторного сканирования `$PREFIX/bin/*`.
+### 3. Bridge Generation Overhead in `pkg/pkg` [RESOLVED - Round 1]
+- **Problem:** Previously, whenever any package was installed, `pkg` executed a loop: `for bin_file in "$PREFIX/bin"/*; do`, rescanning every executable in `$PREFIX/bin`.
+- **Solution:** The loop was optimized: bridge generation in `$PREFIX/../runtime/bin` now runs strictly for binary files introduced by the package currently being installed (`$pkg_files` with prefix `bin/`), without iterating over `$PREFIX/bin/*`.
 
-### 4. Разрыв цепочки сборки `liblse_compat` в `env/build.sh`
-- Скрипт `env/build.sh` собирает `bootstrap.tar.gz` и копирует каталоги `pkg` и `overlay` в `dist/env`.
-- При этом `liblse_compat` собирается отдельным скриптом `env/liblse_compat/build.sh`, но не включается в процесс `env/build.sh all` и не копируется в `dist/`.
+### 4. Build Pipeline Gap for `liblse_compat` in `env/build.sh`
+- The `env/build.sh` script packages `bootstrap.tar.gz` and copies `pkg` and `overlay` into `dist/env`.
+- However, `liblse_compat` is built via a separate script (`env/liblse_compat/build.sh`) and was not included in `env/build.sh all` nor copied into `dist/`.
 
-### 5. Дублирование кода нормализации путей
-Логика замены путей Termux на активный `$PREFIX` дублируется в 4 независимых местах:
+### 5. Code Duplication in Path Normalization
+Path rewriting logic translating Termux paths to active `$PREFIX` is duplicated across 4 distinct locations:
 1. `dev.continuum.antigravity.install.TermuxPrefixRewriter` / `TermuxShebangRewriter` (Java);
-2. `env/pkg/lib/util.sh` -> функция `rewrite_prefix` (Bash/sed);
+2. `env/pkg/lib/util.sh` -> `rewrite_prefix` function (Bash/sed);
 3. `env/overlay/bin/agy-fix-paths` (Bash/sed);
 4. `env/bootstrap/patch-prefix.py` (Python).
 
 ---
 
-## 6. Рекомендации по Устранению и Оптимизации
+## 6. Recommendations for Remediation and Optimization
 
-1. **Оптимизация распаковщика `deb.sh`:**
-   - Сохранять смещения ar-членов в один проход без многократных вызовов `dd`.
-   - Объединить валидацию путей (`deb_validate_data`), извлечение данных (`deb_extract_data`) и генерацию списка файлов (`deb_files`) в **один единственный проход распаковки** `tar -x -v`, читая список распакованных файлов прямо из `stdout`/`stderr` tar. Это ускорит установку пакетов в 3–4 раза.
-2. **Исправление путей:**
-   - [x] Исправить вычисление `$HOME` в `env/overlay/bin/agy-upgrade` на `HOME="${HOME:-$(dirname "$PREFIX")}"` (выполнено в Заходе 1).
-   - [x] Заменить жесткий путь к логотипу в `env/overlay/bin/agy-notify` на относительный путь через ассеты приложения или `$PREFIX/share/antigravity/logo.png` с fallback на системную иконку (выполнено в Заходе 1).
-   - Использовать переносимый шебанг `#!/usr/bin/env bash` или `#!/bin/sh` для всех скриптов репозитория перед упаковкой.
-3. **Оптимизация bridge-генератора в `pkg`:**
-   - [x] Генерировать runtime-мосты только для тех файлов, которые были добавлены текущим установленным пакетом (из списка `$pkg_files`), а не для всех файлов каталога `$PREFIX/bin` (выполнено в Заходе 1).
-4. **Интеграция LSE-компонентов:**
-   - Добавить цель `liblse_compat` в `env/build.sh`.
-   - При необходимости использования LSE-эмуляции в Bionic предусмотреть явную сборку `liblse_compat_bionic.so` через Android NDK без зависимостей от `libc.so.6`.
+1. **Optimize Archive Extraction in `deb.sh`:**
+   - Record `ar` member offsets in a single pass without repeated `dd` executions.
+   - Combine path validation (`deb_validate_data`), extraction (`deb_extract_data`), and file list generation (`deb_files`) into a **single extraction pass** using `tar -x -v`, reading the extracted file list directly from tar output. This will accelerate package installation by 3–4x.
+2. **Path and Environment Hardening:**
+   - [x] Fix `$HOME` calculation in `env/overlay/bin/agy-upgrade` to `HOME="${HOME:-$(dirname "$PREFIX")}"` (completed in Round 1).
+   - [x] Replace hardcoded logo paths in `env/overlay/bin/agy-notify` with relative application asset lookup or `$PREFIX/share/antigravity/logo.png` with fallback to system icons (completed in Round 1).
+   - Use portable shebangs (`#!/usr/bin/env bash` or `#!/bin/sh`) across all repository scripts before packaging.
+3. **Optimize Bridge Generator in `pkg`:**
+   - [x] Generate runtime bridges strictly for files added by the package currently installed (from `$pkg_files`), rather than iterating through all files in `$PREFIX/bin` (completed in Round 1).
+4. **Integrate LSE Components:**
+   - Add a `liblse_compat` build target directly into `env/build.sh`.
+   - If LSE emulation is required in Bionic, provide a dedicated build of `liblse_compat_bionic.so` using the Android NDK without dependencies on `libc.so.6`.
 
 ---
 
-## 7. Инструкция по Сборке и Тестированию
+## 7. Build and Testing Instructions
 
-### Сборка окружения
+### Building the Environment
 ```bash
-# 1. Сборка оптимизированного bootstrap.tar.gz из bootstrap-aarch64.zip
+# 1. Build optimized bootstrap.tar.gz from bootstrap-aarch64.zip
 ./env/build.sh bootstrap
 
-# 2. Упаковка всех слоев окружения в dist/env (готово к включению в APK)
+# 2. Package all environment layers into dist/env (ready for APK bundling)
 ./env/build.sh assets
 
-# 3. Полная пересборка всех компонентов
+# 3. Full rebuild of all components
 ./env/build.sh all
 ```
 
-### Запуск тестов
+### Running Tests
 ```bash
-# 1. Автономный модульный тест ядра pkg (vercmp, resolver, db, deb)
+# 1. Offline unit tests for pkg core (vercmp, resolver, db, deb)
 bash env/tests/selftest
 
-# 2. Проверка инвариантов и целостности дерева ассетов
+# 2. Verify invariants and asset tree integrity
 bash env/tests/invariant
 
-# 3. Полный интеграционный E2E-тест развертывания префикса
+# 3. Comprehensive end-to-end integration test deploying prefix
 bash env/tests/e3
 ```

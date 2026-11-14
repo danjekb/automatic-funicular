@@ -1,14 +1,14 @@
-# Веб-интерфейс Antigravity: `web/`
+# Antigravity Web Interface: `web/`
 
-> Одностраничное приложение (SPA на базе React), выполняемое в изолированном Android WebView и взаимодействующее с локальным Go/C++ ядром (`language_server`) через loopback HTTPS и нативный Java-мост (`AndroidBridge`).
+> Single-page application (React-based SPA) running within an isolated Android WebView and communicating with the local Go/C++ core (`language_server`) via loopback HTTPS and a native Java bridge (`AndroidBridge`).
 
 ---
 
-## 1. Архитектурный обзор (Architecture Overview)
+## 1. Architectural Overview
 
-Веб-слой Antigravity представляет собой специализированный UI-фронтенд, упакованный в ассеты приложения и оптимизированный для работы на сенсорных экранах Android (ARM64). Вместо загрузки через классическую схему `file:///android_asset/` (блокирующую современные возможности браузера и работу ConnectRPC), интерфейс монтируется в `WebView` через `loadDataWithBaseURL` на доверенный origin loopback-сервера `https://127.0.0.1:<port>/`.
+The Antigravity web layer is a specialized UI frontend packaged within application assets and optimized for Android touchscreen environments (ARM64). Rather than loading via the classic `file:///android_asset/` scheme (which blocks modern browser features and ConnectRPC operations), the interface is mounted in `WebView` via `loadDataWithBaseURL` targeting the trusted loopback server origin `https://127.0.0.1:<port>/`.
 
-### Архитектурная диаграмма взаимодействий
+### Architecture Interaction Sequence Diagram
 
 ```mermaid
 sequenceDiagram
@@ -21,226 +21,226 @@ sequenceDiagram
     participant Bridge as AndroidBridge (Java)
 
     Host->>Injector: inject(index.html, bridge, theme)
-    Note over Injector: Внедряет CSP, __APP_CONFIG__, __AG_ENDPOINTS__,<br/>__AG_CSRF__, __AG_NATIVE_BRIDGE_TOKEN__ и startup_ready.js
+    Note over Injector: Injects CSP, __APP_CONFIG__, __AG_ENDPOINTS__,<br/>__AG_CSRF__, __AG_NATIVE_BRIDGE_TOKEN__, and startup_ready.js
     Injector-->>Host: Patched HTML
     Host->>WV: loadDataWithBaseURL("https://127.0.0.1:port/", HTML, ...)
 
-    critical Загрузка ассетов и скриптов
+    critical Asset and Script Loading
         WV->>AssetServer: GET /generated/patches/web_optimizations.js
-        AssetServer-->>WV: 200 OK (локальный файл из files/web/)
+        AssetServer-->>WV: 200 OK (local file from files/web/)
         WV->>AssetServer: GET /generated/main.js
-        AssetServer-->>WV: 200 OK (локальный 9.5MB бандл)
+        AssetServer-->>WV: 200 OK (local 9.5MB bundle)
     end
 
-    Note over WV: Выполнение скриптов boot, patches и main.js
+    Note over WV: Execute boot scripts, patches, and main.js
     
-    opt Вызовы RPC / Ядро
+    opt RPC Invocations / Core Engine
         WV->>Core: POST /exa.language_server_pb.LanguageServerService/...
-        Note over WV,Core: Fetch-rewrite перенаправляет вызовы на CoreBase<br/>с заголовком x-codeium-csrf-token
+        Note over WV,Core: Fetch-rewrite redirects calls to CoreBase<br/>with x-codeium-csrf-token header
         Core-->>WV: ConnectRPC / SSE Stream Response
     end
 
-    opt Готовность UI и синхронизация темы
+    opt UI Readiness and Theme Synchronization
         WV->>Bridge: onUiReady(token)
-        Bridge->>Host: dismissSplash() (Скрытие сплэш-скрина)
+        Bridge->>Host: dismissSplash() (Dismiss splash screen)
         WV->>Bridge: setThemeByUser(theme)
-        Bridge->>Host: Обновление цвета статус-бара и шторки
+        Bridge->>Host: Update status bar and navigation bar colors
     end
 ```
 
 ---
 
-## 2. Структура файлов и каталогов
+## 2. Directory and File Structure
 
 ```
 web/
-├── build.sh                      # Баш-оркестратор сборщика фрагментов и патчера
-├── src.manifest                  # Декларативный манифест сборки web/generated/**
-├── patch_main.py                 # Патчер upstream main.js (Desktop Mode + монохромное Eza)
-├── index.html                    # Корневой HTML-шаблон хоста приложения
-├── main.js                       # Исходный (upstream) обфусцированный бандл React UI (~9.9 МБ)
-├── jetbox.css                    # Стили специфичных контролов и терминала
-├── compiled_tailwind.css         # Базовый скомпилированный бандл Tailwind CSS
-├── prism_bundle.js               # Бандл подсветки синтаксиса PrismJS (defer)
-├── diff_worker.js                # Web Worker для фонового вычисления строковых диффов
-├── audio_processor.js            # AudioWorkletProcessor для потокового аудио 16 kHz
-├── antigravity-icon.png          # Иконка приложения
-├── google_signin.svg             # Векторный ассет кнопки входа
-├── symbols-icons/                # Локальный кэш иконок Material Symbols
-├── workers/                      # Модули интеграции с PDF.js
-│   ├── pdf.min.mjs               # Библиотека PDF.js core
-│   ├── pdf.worker.mjs            # Воркер парсинга PDF
-│   └── pdfjs_loader.mjs          # Мост между Closure compiler и ESM PDF.js
-├── generated/                    # Каталог артефактов сборки (генерируется build.sh)
-│   ├── main.js                   # Пропатченный рабочий бандл приложения
-│   ├── bridge.core.js            # Ядро моста, полифиллы и рерайтер fetch
-│   ├── boot/                     # Скрипты ранней инициализации (<head>)
+├── build.sh                      # Bash orchestrator for bundle assembly and patching
+├── src.manifest                  # Declarative build manifest for web/generated/**
+├── patch_main.py                 # Upstream main.js patcher (Desktop Mode + monochrome Eza)
+├── index.html                    # Root HTML template for the application host
+├── main.js                       # Upstream obfuscated React UI bundle (~9.9 MB)
+├── jetbox.css                    # Styles for custom controls and terminal
+├── compiled_tailwind.css         # Compiled base Tailwind CSS bundle
+├── prism_bundle.js               # PrismJS syntax highlighting bundle (defer)
+├── diff_worker.js                # Web Worker for background string diff computation
+├── audio_processor.js            # AudioWorkletProcessor for streaming 16 kHz audio
+├── antigravity-icon.png          # Application icon
+├── google_signin.svg             # Sign-in button vector asset
+├── symbols-icons/                # Local Material Symbols icon cache
+├── workers/                      # PDF.js integration modules
+│   ├── pdf.min.mjs               # PDF.js core library
+│   ├── pdf.worker.mjs            # PDF parsing worker
+│   └── pdfjs_loader.mjs          # Bridge between Closure compiler and ESM PDF.js
+├── generated/                    # Build artifact directory (generated by build.sh)
+│   ├── main.js                   # Patched production application bundle
+│   ├── bridge.core.js            # Bridge core, polyfills, and fetch rewriter
+│   ├── boot/                     # Early initialization scripts (<head>)
 │   │   ├── custom-elements-guard.js
 │   │   └── theme-bootstrap.js
-│   └── patches/                  # Мобильные патчи и адаптеры
+│   └── patches/                  # Mobile patches and adapters
 │       ├── web_optimizations.js
 │       ├── touch_model_menu.js
 │       ├── theme_sync.js
 │       └── startup_ready.js
-├── src/                          # Модульные исходники фрагментов бандлов
-│   ├── boot/                     # Фрагменты раннего старта
-│   ├── core/                     # Фрагменты ядра моста (namespace, csrf, fetch, ...)
-│   └── patches/                  # Фрагменты функциональных патчей
+├── src/                          # Modular bundle fragment sources
+│   ├── boot/                     # Early boot fragments
+│   ├── core/                     # Bridge core fragments (namespace, csrf, fetch, ...)
+│   └── patches/                  # Feature patch fragments
 └── tests/
-    └── selftest.sh               # Тест сборки и проверки целостности исходников
+    └── selftest.sh               # Build verification and source integrity test
 ```
 
 ---
 
-## 3. Конвейер сборки бандлов (Bundling Pipeline)
+## 3. Bundling Pipeline
 
-Сборка веб-слоя выполняется утилитой [`build.sh`](build.sh) на основе манифеста [`src.manifest`](src.manifest). Пайплайн спроектирован так, чтобы гарантировать **неизменность апстримного файла `main.js`**: все изменения вносятся исключительно в копию в `web/generated/main.js`.
+The web layer is built by [`build.sh`](build.sh) based on [`src.manifest`](src.manifest). The pipeline is designed to guarantee that the **upstream `main.js` file remains immutable**: all modifications are applied solely to the copy located in `web/generated/main.js`.
 
-### Синтаксис `src.manifest`
-- `bundle iife <path>` — объявляет бандл с оборачиванием в изолированную IIFE `(function(){ ... })();`. Если исходные фрагменты бандла уже имеют собственное замыкание верхнего уровня, `build.sh` автоматически пропускает повторную обертку, предотвращая появление вложенных `(function(){(function(){...})()})();`.
-- `bundle <path>` — объявляет бандл с прямой конкатенацией без замыкания.
-- `src/<path>` — добавляет фрагмент кода в текущий открытый бандл.
-- Строки `#` и `;` считаются комментариями.
+### `src.manifest` Syntax
+- `bundle iife <path>` — Declares a bundle wrapped in an isolated IIFE `(function(){ ... })();`. If source bundle fragments already contain a top-level closure, `build.sh` automatically skips duplicate wrapping, preventing nested `(function(){(function(){...})()})();`.
+- `bundle <path>` — Declares a bundle with direct concatenation without a closure wrapper.
+- `src/<path>` — Appends a source fragment to the currently open bundle.
+- Lines starting with `#` and `;` are treated as comments.
 
-### Генерируемые бандлы
+### Generated Bundles
 
-| Бандл (`web/generated/...`) | Режим | Размер | Назначение |
+| Bundle (`web/generated/...`) | Mode | Size | Purpose |
 |---|---|---|---|
-| **`boot/custom-elements-guard.js`** | IIFE | ~514 B | Предотвращает краш при повторной регистрации Custom Elements в overlay-бандлах. |
-| **`boot/theme-bootstrap.js`** | IIFE | ~1.3 KB | Мгновенно применяет `light`/`dark` до первого рендера, предотвращая мигание экрана. |
-| **`bridge.core.js`** | IIFE | ~12 KB | Полифилл `window.process`, конфигурация, CSRF, discovery эндпоинтов и перехватчик `fetch`. |
-| **`patches/web_optimizations.js`** | IIFE | ~2.2 KB | Ликвидация 300мс задержки тапа, фиксация высоты `--agy-vvh` при открытии IME, GPU-композитинг. |
-| **`patches/touch_model_menu.js`** | IIFE | ~6.7 KB | Адаптация hover-меню выбора моделей Base UI под сенсорный ввод. |
-| **`patches/theme_sync.js`** | IIFE | ~4.7 KB | MutationObserver за классами `<html>`/`<body>` и передача смены темы в нативный Android. |
-| **`patches/startup_ready.js`** | IIFE | ~4.7 KB | Детектор первого полезного рендера DOM и перехватчик JS-ошибок для `AndroidBridge`. |
-| **`patches/shield.js`** | IIFE | ~20.1 KB | Быстрая кнопка управления политиками безопасности (Security Shield / Turbo mode) в нижней панели чата с локализацией EN/PL/RU. |
-| **`main.js`** | Raw + Patch | ~9.5 MB | Рабочий бандл React UI, пропатченный скриптом `patch_main.py`. |
+| **`boot/custom-elements-guard.js`** | IIFE | ~514 B | Prevents crashes caused by duplicate Custom Element registrations in overlay bundles. |
+| **`boot/theme-bootstrap.js`** | IIFE | ~1.3 KB | Instantly applies `light`/`dark` before first render, eliminating screen flicker. |
+| **`bridge.core.js`** | IIFE | ~12 KB | `window.process` polyfill, configuration, CSRF handling, endpoint discovery, and `fetch` interceptor. |
+| **`patches/web_optimizations.js`** | IIFE | ~2.2 KB | Eliminates 300ms tap delay, stabilizes `--agy-vvh` viewport height during IME popup, GPU compositing. |
+| **`patches/touch_model_menu.js`** | IIFE | ~6.7 KB | Adapts Base UI model selection hover menu for touch inputs. |
+| **`patches/theme_sync.js`** | IIFE | ~4.7 KB | `MutationObserver` on `<html>`/`<body>` classes, forwarding theme changes to native Android. |
+| **`patches/startup_ready.js`** | IIFE | ~4.7 KB | Detects first meaningful DOM paint and intercepts JS errors for `AndroidBridge`. |
+| **`patches/shield.js`** | IIFE | ~20.1 KB | Quick security policy control button (Security Shield / Turbo mode) in bottom chat panel with EN/PL/RU localization. |
+| **`main.js`** | Raw + Patch | ~9.5 MB | Production React UI bundle patched via `patch_main.py`. |
 
-### Проверка валидности (Verification)
-После сборки `build.sh` запускает статический синтаксический анализатор V8 (`node --check`) для каждого сгенерированного файла. Если Node.js не установлен в окружении, проверка пропускается с информационным предупреждением.
+### Verification
+After assembly, `build.sh` executes the V8 static syntax analyzer (`node --check`) for each generated file. If Node.js is not present in the environment, the check is skipped with an informational warning.
 
 ---
 
-## 4. Патчинг основного бандла (`patch_main.py`)
+## 4. Main Bundle Patching (`patch_main.py`)
 
-Скрипт [`patch_main.py`](patch_main.py) выполняет динамическую модификацию скомпилированного и обфусцированного бандла `main.js`:
+The [`patch_main.py`](patch_main.py) script performs dynamic modification of the compiled and obfuscated `main.js` bundle:
 
-1. **Идемпотентность**: Перед патчингом проверяется наличие маркеров `"Desktop Mode"` или `"ag_desktop_mode"`. Если они присутствуют, повторное применение пропускается.
-2. **Внедрение Desktop Mode Toggle**:
-   - Находится сигнатура хуков компонента Appearance:
+1. **Idempotence**: Prior to patching, checks for the presence of `"Desktop Mode"` or `"ag_desktop_mode"` markers. If found, reapplication is skipped.
+2. **Desktop Mode Toggle Injection**:
+   - Locates Appearance component hook signatures:
      ```python
      hook_pattern = re.compile(r'(var\s+[A-Za-z0-9_$]+=[A-Za-z0-9_$]+!==3,\s*[A-Za-z0-9_$]+=[A-Za-z0-9_$]+!==2,\s*[A-Za-z0-9_$]+=[A-Za-z0-9_$]+=>\s*[A-Za-z0-9_$]+=>\{.*?\};)')
      ```
-   - Внедряются React-хуки `useState` и `useCallback`, связывающие состояние с `window.Android.isDesktopMode()` и `localStorage.getItem('ag_desktop_mode')`.
-   - Находится вызов `createElement` для секции `{label:"Theme"}` и сразу за ним инжектируется элемент настройки Desktop Mode с переключателем (`Switch`).
-3. **Экспорт настроек в `QC.Provider`**:
-   - Экспортирует ссылку `window.__agySettings` для интеграции Security Shield.
-4. **Синхронизация стрима при выходе из фона (ResumeSync)**:
-   - Внедряет метод `refreshTrajectories()` и глобальный хук `window.__agRefreshTrajectories` в диспетчер `vKa`, автоматически переподключая сокеты при возврате в приложение.
-5. **Разблокировка вкладки Developer ("Developer-only tools")**:
-   - Переключает базовый флаг `developerMode` в `main.js` (`enabled: !0`, `runtimeEnvironmentOverride: !0`, `featureFlagOverrides: !0`), открывая доступ к экрану **Feature Environment Override** (эмуляция OS, хоста, бинарника и типа пользователя) и **Custom Flags** в меню настроек.
-6. **Разблокировка секции Labs и экспериментальных возможностей**:
-   - Активирует карточку **Labs** в настройках *General* с переключателями **Autonomous Mode**, **Inline Actions** и **Chief of Staff (Concierge Agent)**.
-   - Разблокирует меню режимов работы агента (*Modes*) с тумблером автономного выполнения в строке ввода промпта.
-   - Открывает встроенный просмотрщик **PDF Viewer**, вкладку проводника файлов **File Explorer Tab**, разделение экрана **Split View** (включая мобильный интерфейс) и ветвление диалогов **Conversation Forking**.
+   - Injects React hooks `useState` and `useCallback`, binding state with `window.Android.isDesktopMode()` and `localStorage.getItem('ag_desktop_mode')`.
+   - Locates the `createElement` call for `{label:"Theme"}` section and injects the Desktop Mode setting control with a toggle (`Switch`) immediately after it.
+3. **Settings Export to `QC.Provider`**:
+   - Exports the `window.__agySettings` reference for Security Shield integration.
+4. **Stream Resume Synchronization (ResumeSync)**:
+   - Injects the `refreshTrajectories()` method and global hook `window.__agRefreshTrajectories` into dispatcher `vKa`, automatically reconnecting sockets upon returning to the app.
+5. **Unlocking Developer Tab ("Developer-only tools")**:
+   - Toggles the base `developerMode` flag in `main.js` (`enabled: !0`, `runtimeEnvironmentOverride: !0`, `featureFlagOverrides: !0`), unlocking the **Feature Environment Override** screen (emulating OS, host, binary, and user type) and **Custom Flags** in the settings menu.
+6. **Unlocking Labs Section and Experimental Features**:
+   - Activates the **Labs** card in *General* settings with toggles for **Autonomous Mode**, **Inline Actions**, and **Chief of Staff (Concierge Agent)**.
+   - Unlocks the agent modes menu (*Modes*) with the autonomous execution toggle in the prompt input bar.
+   - Enables the built-in **PDF Viewer**, **File Explorer Tab**, **Split View** (including mobile layout), and **Conversation Forking**.
 
 ---
 
-## 5. Взаимодействие с нативным Android (`AndroidBridge`)
+## 5. Native Android Integration (`AndroidBridge`)
 
-Веб-приложение выполняется в WebView, где объект `Android` (а также псевдоним `window.AndroidBridge`) зарегистрирован через `addJavascriptInterface`.
+The web application runs within WebView, where the `Android` object (as well as alias `window.AndroidBridge`) is exposed via `addJavascriptInterface`.
 
-### Инъекции во время загрузки (`AppHtmlInjector`)
-Перед передачей разметки в движок WebView, Java-класс `AppHtmlInjector` внедряет в `<head>`:
-- **Strict Content Security Policy (CSP)**: запрет небезопасных внешних фреймов и объектов, ограничение `worker-src 'self' blob:`.
-- **Глобальные параметры конфигурации**:
-  - `window.__APP_CONFIG__` — JSON-параметры среды (версия, платформа, пути к воркспейсу).
-  - `window.__AG_ENDPOINTS__` — адрес core-сервера (`core`, `core_http`, `enginePort`).
-  - `window.__AG_CSRF__` — криптографический CSRF-токен для авторизации в `language_server`.
-  - `window.__AG_HOST_THEME__` / `window.__AG_RESOLVED_THEME__` — начальная тема хоста (`dark` / `light` / `system`).
-  - `window.__AG_NATIVE_BRIDGE_TOKEN__` — криптографический 32-байтный одноразовый токен для авторизации привилегированных вызовов (сброс сплэша, сохранение блобов).
-- **Скрипт сигнала готовности**: `<script src="./generated/patches/startup_ready.js"></script>`.
+### Boot-Time Injections (`AppHtmlInjector`)
+Before passing HTML markup to the WebView engine, the Java class `AppHtmlInjector` injects into `<head>`:
+- **Strict Content Security Policy (CSP)**: Disallows insecure external frames and objects, restricting `worker-src 'self' blob:`.
+- **Global Configuration Parameters**:
+  - `window.__APP_CONFIG__` — JSON environment parameters (version, platform, workspace paths).
+  - `window.__AG_ENDPOINTS__` — Core server endpoints (`core`, `core_http`, `enginePort`).
+  - `window.__AG_CSRF__` — Cryptographic CSRF token for `language_server` authentication.
+  - `window.__AG_HOST_THEME__` / `window.__AG_RESOLVED_THEME__` — Initial host theme (`dark` / `light` / `system`).
+  - `window.__AG_NATIVE_BRIDGE_TOKEN__` — Cryptographic 32-byte single-use token to authorize privileged calls (dismissing splash, saving blobs).
+- **Readiness Signal Script**: `<script src="./generated/patches/startup_ready.js"></script>`.
 
-### Интерфейсы моста `window.Android`
+### Bridge Interfaces `window.Android`
 
-| Метод | Сигнатура | Назначение |
+| Method | Signature | Purpose |
 |---|---|---|
-| `onUiReady` | `(token: string) => void` | Вызывается скриптом `startup_ready.js` при первом реальном рендере DOM для скрытия нативного сплэш-экрана. |
-| `onUiError` | `(token: string, message: string) => void` | Передает критические фатальные ошибки JS в нативный логкат и экран ошибки. |
-| `setThemeByUser`| `(theme: string) => boolean` | Передает выбранную пользователем тему (`light`/`dark`) для обновления цвета системных баров Android. |
-| `onVisualThemeChanged` | `(theme: string) => void` | Сигнализирует о смене активного CSS-оформления. |
-| `getTheme` | `() => string` | Возвращает текущую системную тему устройства. |
-| `isDesktopMode` | `() => boolean` | Проверяет, включен ли режим широкого десктопного Viewport. |
-| `setDesktopMode`| `(enabled: boolean) => void` | Динамически переключает User-Agent и Viewport WebView между мобильным и десктопным режимами. |
-| `openDirectoryPicker` | `() => void` | Запускает системный диалог выбора папки (SAF Document Tree) для открытия проекта. |
-| `saveBlob` | `(token, base64, filename, mime) => void` | Безопасное сохранение сгенерированных веб-интерфейсом блобов в хранилище `Downloads`. |
+| `onUiReady` | `(token: string) => void` | Invoked by `startup_ready.js` upon first meaningful DOM paint to dismiss the native splash screen. |
+| `onUiError` | `(token: string, message: string) => void` | Forwards critical fatal JS errors to native logcat and the error UI. |
+| `setThemeByUser`| `(theme: string) => boolean` | Communicates user-selected theme (`light`/`dark`) to update Android system bar colors. |
+| `onVisualThemeChanged` | `(theme: string) => void` | Signals an active CSS presentation change. |
+| `getTheme` | `() => string` | Returns the device's current system theme. |
+| `isDesktopMode` | `() => boolean` | Checks whether wide desktop viewport mode is enabled. |
+| `setDesktopMode`| `(enabled: boolean) => void` | Dynamically switches WebView User-Agent and Viewport between mobile and desktop modes. |
+| `openDirectoryPicker` | `() => void` | Launches the system directory picker (SAF Document Tree) to open a project. |
+| `saveBlob` | `(token, base64, filename, mime) => void` | Securely saves web-generated blobs to the device `Downloads` storage. |
 
 ---
 
-## 6. Подсистемы веб-слоя
+## 6. Web Layer Subsystems
 
-### 6.1. Подсистема тем (Theme Engine)
-1. **Ранняя стадия (`theme-bootstrap.js`)**: Выполняется синхронно в `<head>`. Читает `?hostTheme=` или `__AG_HOST_THEME__`. Моментально ставит класс `dark`/`light` на `document.documentElement` и задает `style.colorScheme`. Исключает белый блик при запуске в тёмной теме.
-2. **Синхронизация во время работы (`theme_sync.js`)**: 
-   - `MutationObserver` слушает изменения атрибута `class` на `<html>` и `<body>`.
-   - Слушатель `window.addEventListener('storage')` отслеживает смену темы во вкладках.
-   - Слушатель `matchMedia('(prefers-color-scheme: dark)')` реагирует на системное расписание день/ночь.
-   - Метод `notify()` обновляет нативные шторки и панели Android.
+### 6.1. Theme Engine
+1. **Early Stage (`theme-bootstrap.js`)**: Executes synchronously in `<head>`. Reads `?hostTheme=` or `__AG_HOST_THEME__`. Immediately applies class `dark`/`light` to `document.documentElement` and sets `style.colorScheme`. Eliminates white flash during cold start in dark theme.
+2. **Runtime Synchronization (`theme_sync.js`)**: 
+   - `MutationObserver` watches `class` attribute changes on `<html>` and `<body>`.
+   - `window.addEventListener('storage')` listener tracks theme changes across tabs.
+   - `matchMedia('(prefers-color-scheme: dark)')` listener responds to system night mode schedules.
+   - `notify()` updates native Android status and navigation bars.
 
-### 6.2. Мобильные оптимизации (Mobile & Touch Optimizations)
+### 6.2. Mobile & Touch Optimizations
 - **`web_optimizations.js`**:
-  - `touch-action: manipulation` на кнопках, ссылках и инпутах отключает браузерную 300-миллисекундную задержку двойного тапа.
-  - `visualViewport.addEventListener('resize')` динамически пересчитывает переменную `--agy-vvh` в пикселях, предотвращая дергание поля чата при выезде клавиатуры IME.
-  - Выборочный `transform: translateZ(0)` форсирует GPU-слои только для ключевых контейнеров скролла (`chat-container`, `.scrollable`), предотвращая исчерпание видеопамяти и зависания RenderThread на чипах ARM Mali.
-  - `resume_sync.js`: перехватывает события возврата из фона (`agy:host-resume`, `visibilitychange`, `focus`) и пересинхронизирует активные потоки ConnectRPC (`__agRefreshTrajectories()`), мгновенно подтягивая шаги и мысли AI, сгенерированные в фоновом режиме.
+  - `touch-action: manipulation` on buttons, links, and inputs eliminates the browser 300ms double-tap delay.
+  - `visualViewport.addEventListener('resize')` dynamically recalculates the `--agy-vvh` pixel variable, preventing chat input bouncing when the IME keyboard appears.
+  - Selective `transform: translateZ(0)` forces GPU compositing layers strictly on key scroll containers (`chat-container`, `.scrollable`), avoiding VRAM exhaustion and RenderThread hitches on ARM Mali chips.
+  - `resume_sync.js`: Intercepts app foreground events (`agy:host-resume`, `visibilitychange`, `focus`) and resynchronizes active ConnectRPC streams (`__agRefreshTrajectories()`), instantly fetching background-generated AI thoughts and steps.
 - **`touch_model_menu.js`**:
-  - Выпадающий список выбора моделей Antigravity в библиотеке Base UI открывает меню уровней размышления (Low / Medium / High) исключительно по hover-событию мыши.
-  - На сенсорном экране тап приводил к мгновенному выбору модели по умолчанию без раскрытия настроек.
-  - Патч перехватывает `pointerdown`/`click` в capture-фазе, блокирует событие и симулирует синтетическую цепочку событий указателя (`pointerover`, `pointerenter`, `pointermove`), после чего посылает `KeyboardEvent('ArrowRight')` с задержками 70мс и 260мс, гарантируя открытие мобильного подменю.
+  - The Antigravity model selection dropdown in Base UI opens reasoning effort submenus (Low / Medium / High) strictly via mouse hover events.
+  - On touchscreens, tapping caused immediate selection of the default model without revealing reasoning options.
+  - The patch intercepts `pointerdown`/`click` during the capture phase, blocks the event, simulates a synthetic pointer event sequence (`pointerover`, `pointerenter`, `pointermove`), and dispatches `KeyboardEvent('ArrowRight')` at 70ms and 260ms delays, ensuring submenu expansion on touch devices.
 
-### 6.3. Мост ядра и транспорт (Core Transport & Fetch Rewrite)
+### 6.3. Core Transport & Fetch Rewrite
 - **`bridge.core.js`**:
-  - Создает стаб `window.process` (Linux / ARM64 / renderer) со стандартными методами `cwd()` и `nextTick()`.
-  - Переопределяет `window.fetch`. Все запросы к ConnectRPC-маркерам (`exa.language_server_pb.`, `exa.host_bridge_pb.`, `/exa.`) переписываются на целевой origin ядра `https://127.0.0.1:<enginePort>`.
-  - Автоматически инжектирует CSRF-заголовок `x-codeium-csrf-token` и параметр `csrf_token`.
-  - Содержит логику ретрая `fetchWithStartupRetry` (до 30 попыток с шагом 120мс), что предотвращает сбои первого запроса, если фронтенд стартовал раньше, чем TLS-сокет ядра завершил биндинг.
+  - Polyfills `window.process` (Linux / ARM64 / renderer) with standard `cwd()` and `nextTick()` methods.
+  - Overrides `window.fetch`. All requests targeting ConnectRPC markers (`exa.language_server_pb.`, `exa.host_bridge_pb.`, `/exa.`) are rewritten to the target core origin `https://127.0.0.1:<enginePort>`.
+  - Automatically injects the CSRF header `x-codeium-csrf-token` and `csrf_token` parameter.
+  - Implements retry logic `fetchWithStartupRetry` (up to 30 attempts with 120ms intervals), preventing initial request failures if the frontend loads before core TLS socket binding finishes.
 
-### 6.4. Воркеры и аудиопроцессинг
-- **PDF Pipeline (`workers/`)**: изолированная работа с документами в воркере `pdf.worker.mjs` без блокировки главного потока UI.
-- **Diff Calculation (`diff_worker.js`)**: вычисление статистики изменений строк (алгоритм Майерса $O(ND)$ с отсечением совпадающих префиксов и суффиксов) вынесено в Web Worker.
-- **Voice / Audio Processor (`audio_processor.js`)**: зарегистрирован как `AudioWorkletProcessor` с именем `audio-streaming-processor`. Осуществляет потоковый даунсемплинг аудиопотока микрофона до 16 кГц PCM (`Int16Array`) для отправки в мультимодальные модели.
+### 6.4. Workers and Audio Processing
+- **PDF Pipeline (`workers/`)**: Isolated document handling within `pdf.worker.mjs` without blocking the main UI thread.
+- **Diff Calculation (`diff_worker.js`)**: Background string diff calculation (Myers algorithm $O(ND)$ with prefix/suffix trimming) offloaded to a Web Worker.
+- **Voice / Audio Processor (`audio_processor.js`)**: Registered as `AudioWorkletProcessor` named `audio-streaming-processor`. Performs streaming microphone downsampling to 16 kHz PCM (`Int16Array`) for multimodal model ingestion.
 
 ---
 
-## 7. Результаты аудита: архитектурные костыли и рекомендации
+## 7. Audit Findings: Architectural Nuances and Recommendations
 
-В ходе аудита веб-слоя выявлен ряд архитектурных нюансов, узких мест и костылей:
+During the web layer audit, architectural nuances, bottlenecks, and workarounds were cataloged:
 
-| Проблема / Костыль | Локация | Описание риска | Рекомендация по исправлению |
+| Issue / Workaround | Location | Risk Description | Recommended Fix |
 |---|---|---|---|
-| **Отсутствие авто-сборки веб-слоя в пайплайне APK** | `modules/builder/05_stage_assets.py` | Скрипт `05_stage_assets.py` проверял и собирал `env`, но для `web/` просто копировал существующий `web/generated/`. Если разработчик правил `web/src/**` и не запустил `web/build.sh` вручную, в APK попадал устаревший бандл. | **[Исправлено]** В `05_stage_assets.py` добавлен автоматический вызов `bash web/build.sh` перед стадированием ассетов. |
-| **Утечка `src.manifest` в финальный релизный APK** | `modules/builder/05_stage_assets.py` | В списке игнорируемых файлов `web_ignore` отсутствовал `src.manifest`, из-за чего исходный манифест сборщика попадал в ресурсы продакшн-APK. | **[Исправлено]** `"src.manifest"` добавлен в кортеж исключений `web_ignore`. |
-| **Хрупкий Regex-патчинг `main.js`** | `web/patch_main.py` | Патчер завязан на точные сигнатуры обфусцированных переменных React (`var C=g!==3,D=g!==2...`) и содержит захардкоженные запасные имена компонентов (`item_comp="v3"`, `switch_comp="dX"`). При смене версии бандла возможен сбой инъекции или `ReferenceError`. | Реализовать верификацию синтаксиса через AST-парсер либо добавить строгие тесты проверки наличия интерфейса в CI. |
-| **Избыточная двойная обертка IIFE** | `web/src.manifest`, `src/boot/theme-bootstrap.js` | Исходник `theme-bootstrap.js` уже имеет собственное замыкание `(function(){...})()`, а в манифесте объявлен как `bundle iife`. В итоге генерировался двойной вложенный IIFE. | **[Исправлено]** В `web/build.sh` добавлена проверка `is_already_iife`, предотвращающая повторное оборачивание уже закрытых фрагментов. |
-| **Зависимость от `/tmp` на Android** | `web/build.sh` (строка 28) | Вызов `mktemp "${TMPDIR:-/tmp}/..."` падал на Android при отсутствии `$TMPDIR` в окружении, так как каталога `/tmp` в системе нет. | **[Исправлено]** Заменено на переносимый и безопасный путь `${TMPDIR:-${HOME:-.}/.tmp}` с автоматическим созданием каталога. |
-| **Захардкоженный fallback CSRF** | `web/src/core/csrf.js` (строка 13) | Если токен не передан через `__AG_CSRF__` и отсутствует в DOM, используется константа `'agy-standalone-token'`. | Генерировать случайный UUID/Hex fallback-токен при инициализации вместо статической константы. |
-| **Несогласованность схемы порта в discovery** | `web/src/core/endpoints.js` (строка 50) | При парсинге URL-параметра `?port=` выставляется `ENDPOINTS.core_http = 'http://127.0.0.1:' + port;`, хотя ядро работает исключительно по HTTPS. | Заменить схему на `https://127.0.0.1:` для единообразия с TLS-транспортом. |
-| **Эмуляция событий тача через задержки** | `web/src/patches/touch_model_menu/` | Раскрытие меню моделей опирается на последовательность `setTimeout(..., 70)` и `setTimeout(..., 260)`. При сильной загрузке CPU задержки могут не успеть сработать. | Использовать MutationObserver или события смены фокуса для подтверждения открытия подменю. |
+| **Missing Web Build Step in APK Pipeline** | `modules/builder/05_stage_assets.py` | `05_stage_assets.py` verified and assembled `env`, but for `web/` simply copied existing `web/generated/`. If a developer edited `web/src/**` without running `web/build.sh` manually, stale bundles shipped into the APK. | **[Fixed]** Added automatic invocation of `bash web/build.sh` prior to asset staging in `05_stage_assets.py`. |
+| **Leak of `src.manifest` into Release APK** | `modules/builder/05_stage_assets.py` | `src.manifest` was missing from `web_ignore`, causing the build manifest to be bundled into production APK assets. | **[Fixed]** Added `"src.manifest"` to the `web_ignore` exclusion tuple. |
+| **Fragile Regex Patching in `main.js`** | `web/patch_main.py` | The patcher relies on exact obfuscated React variable signatures (`var C=g!==3,D=g!==2...`) and hardcoded fallback component names (`item_comp="v3"`, `switch_comp="dX"`). Upstream bundle updates may cause injection failures or `ReferenceError`. | Implement syntax verification via an AST parser or add strict CI UI regression tests. |
+| **Redundant Double IIFE Wrapping** | `web/src.manifest`, `src/boot/theme-bootstrap.js` | Source `theme-bootstrap.js` already contained a closure `(function(){...})()`, while declared in the manifest as `bundle iife`. This generated nested IIFEs. | **[Fixed]** Added `is_already_iife` check in `web/build.sh` to skip wrapping already closed fragments. |
+| **Hardcoded `/tmp` Dependency on Android** | `web/build.sh` (line 28) | Invoking `mktemp "${TMPDIR:-/tmp}/..."` failed on Android when `$TMPDIR` was unset, as `/tmp` does not exist on Android. | **[Fixed]** Replaced with portable path `${TMPDIR:-${HOME:-.}/.tmp}` with automatic directory creation. |
+| **Hardcoded CSRF Fallback** | `web/src/core/csrf.js` (line 13) | If no token is provided via `__AG_CSRF__` and none exists in the DOM, constant `'agy-standalone-token'` was used. | Generate a random UUID/Hex fallback token at initialization instead of a static constant. |
+| **Inconsistent Discovery Port Scheme** | `web/src/core/endpoints.js` (line 50) | Parsing URL parameter `?port=` assigned `ENDPOINTS.core_http = 'http://127.0.0.1:' + port;`, whereas core operates strictly over HTTPS. | Change scheme to `https://127.0.0.1:` to align with TLS transport. |
+| **Delay-Based Touch Event Emulation** | `web/src/patches/touch_model_menu/` | Model menu expansion relies on consecutive `setTimeout(..., 70)` and `setTimeout(..., 260)`. Under heavy CPU load, delays may misfire. | Use MutationObserver or focus-change events to confirm submenu opening. |
 
 ---
 
-## 8. Проверка и тестирование (Verification)
+## 8. Verification and Testing
 
-Для проверки целостности и собираемости веб-слоя запустите тест самодиагностики:
+To verify web layer integrity and build stability, execute the self-test suite:
 
 ```bash
 bash web/tests/selftest.sh
 ```
 
-Тест выполняет:
-1. Создание изолированной временной копии директории `web/`.
-2. Фиксацию контрольной суммы SHA-256 исходного `main.js`.
-3. Запуск сборки `web/build.sh` и патчера `patch_main.py`.
-4. Проверку, что исходный `main.js` остался неизменным.
-5. Проверку генерации всех файлов и валидность путей в `index.html`.
-6. Верификацию отсутствия повторных IIFE-оберток в сгенерированных бандлах.
+The test performs:
+1. Creation of an isolated temporary copy of `web/`.
+2. SHA-256 checksum capture of upstream `main.js`.
+3. Execution of `web/build.sh` and `patch_main.py`.
+4. Verification that upstream `main.js` remains unmodified.
+5. Verification of all generated artifacts and path validity in `index.html`.
+6. Verification that generated bundles contain no redundant double IIFE wrappers.

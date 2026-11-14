@@ -1,12 +1,12 @@
 # Antigravity v2 - I/O & Event Bus Subsystem (`modules/io`)
 
-> **Модуль I/O** — центральная подсистема межпроцессного взаимодействия (IPC), перехвата системных потоков (stdout/stderr) и асинхронной маршрутизации событий в среде Android/Linux для Google Antigravity v2.
+> The **I/O Module** is the central subsystem for inter-process communication (IPC), system stream interception (stdout/stderr), and asynchronous event routing in the Android/Linux environment for Google Antigravity v2.
 
 ---
 
-## 1. Архитектурный обзор
+## 1. Architectural Overview
 
-Модуль `modules/io` построен по архитектурному паттерну **Publish/Subscribe Event Bus** с поддержкой потоковых перехватчиков (Stream Interceptors) и гетерогенных транспортов (FIFO, UNIX Domain Sockets, Android Intents).
+The `modules/io` module is built on the **Publish/Subscribe Event Bus** architectural pattern, featuring stream interceptors and heterogeneous transport support (FIFO, UNIX Domain Sockets, Android Intents).
 
 ```
  +-------------------------------------------------------------------------------+
@@ -50,11 +50,11 @@
 
 ---
 
-## 2. Спецификация событий (Event Envelope)
+## 2. Event Specification (Event Envelope)
 
-Все события, циркулирующие в шине, строго стандартизированы JSON-схемой `spec/event_schema.json` (Draft-07).
+All events circulating through the bus strictly adhere to the `spec/event_schema.json` JSON schema (Draft-07).
 
-### 2.1. Формат конверта (Envelope)
+### 2.1. Envelope Format
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
@@ -64,162 +64,162 @@
   "properties": {
     "event": {
       "type": "string",
-      "description": "Имя события через точку, напр. core.url.open, agent.task.started"
+      "description": "Dot-separated event name, e.g. core.url.open, agent.task.started"
     },
     "timestamp": {
       "type": "integer",
-      "description": "Epoch timestamp в миллисекундах"
+      "description": "Epoch timestamp in milliseconds"
     },
     "source": {
       "type": "string",
-      "description": "Источник события, напр. language_server:stdout, input:socket"
+      "description": "Event source, e.g. language_server:stdout, input:socket"
     },
     "data": {
       "type": "object",
-      "description": "Произвольный JSON-payload события"
+      "description": "Arbitrary JSON payload for the event"
     }
   }
 }
 ```
 
-### 2.2. Сериализация и валидация (`core_bus/envelope.py`)
-- `create_event(event_type, source, data)`: создаёт словарь события с текущей миллисекундной меткой `int(time.time() * 1000)`.
-- `serialize_event(envelope)`: сериализует событие в UTF-8 JSON строку.
-- `deserialize_event(raw_text)`: разбирает JSON и валидирует наличие обязательных полей.
-- `validate_event(envelope)`: проверяет наличие полей `event`, `timestamp`, `source`, `data`, непустую строку `event` и тип словаря `data`.
+### 2.2. Serialization and Validation (`core_bus/envelope.py`)
+- `create_event(event_type, source, data)`: Creates an event dictionary with current millisecond timestamp `int(time.time() * 1000)`.
+- `serialize_event(envelope)`: Serializes an event dictionary to a UTF-8 JSON string.
+- `deserialize_event(raw_text)`: Parses JSON and validates the presence of required fields.
+- `validate_event(envelope)`: Verifies the presence of `event`, `timestamp`, `source`, `data` fields, ensures `event` is a non-empty string, and checks that `data` is a dictionary.
 
 ---
 
-## 3. Ядро шины (`core_bus/`)
+## 3. Bus Core (`core_bus/`)
 
-### 3.1. Маршрутизатор (`subscriber_router.py`)
-- Загружает таблицу маршрутов из JSON-файла (`spec/default_routes.json`).
-- Поддерживает маски подстановок (wildcards) через `fnmatch.fnmatch` (например, `agent.task.*`, `core.*`, `*`).
-- Метод `get_destinations(event_type)` возвращает отсортированный дедуплицированный список выходных скриптов-обработчиков.
+### 3.1. Router (`subscriber_router.py`)
+- Loads the routing table from a JSON configuration file (`spec/default_routes.json`).
+- Supports wildcard pattern matching via `fnmatch.fnmatch` (e.g., `agent.task.*`, `core.*`, `*`).
+- The `get_destinations(event_type)` method returns a sorted, deduplicated list of output handler scripts.
 
-#### Таблица маршрутизации по умолчанию (`spec/default_routes.json`)
-| Шаблон события (`pattern`) | Обработчики (`outputs`) | Назначение |
+#### Default Routing Table (`spec/default_routes.json`)
+| Event Pattern (`pattern`) | Handlers (`outputs`) | Purpose |
 | :--- | :--- | :--- |
-| `core.url.open` | `broadcast_emitter.sh`, `file_sink.py` | Открытие URL авторизации/OAuth в системном браузере Android |
-| `agent.task.*` | `notify_tray.sh`, `file_sink.py` | Уведомление в статус-бар о жизненном цикле задач агента |
-| `system.error` | `notify_tray.sh`, `file_sink.py` | Оповещение о критических сбоях и panic ядра |
-| `external.*` | `file_sink.py` | Внешние интеграционные события |
+| `core.url.open` | `broadcast_emitter.sh`, `file_sink.py` | Opens authorization/OAuth URLs in the Android system browser |
+| `agent.task.*` | `notify_tray.sh`, `file_sink.py` | Status bar notifications for agent task lifecycle events |
+| `system.error` | `notify_tray.sh`, `file_sink.py` | Alerts for critical crashes and core panics |
+| `external.*` | `file_sink.py` | External integration events |
 
-### 3.2. Брокер событий (`event_broker.py`)
-- Центральный диспетчер событий `EventBroker`.
-- Поддерживает два уровня подписчиков:
-  1. **In-Memory Handlers**: Python-колбэки (`register_handler(pattern, callable)`), выполняемые синхронно внутри процесса.
-  2. **External Script Handlers**: вызовы внешних shell- и python-скриптов из директории `outputs/`.
-- Вызов внешних обработчиков осуществляется через `subprocess.Popen` с передачей JSON-конверта через `stdin` и настраиваемым таймаутом выполнения (по умолчанию 5 секунд).
-- **Защита от зомби-процессов и утечек FD**: при возникновении `subprocess.TimeoutExpired` гарантированно вызываются `proc.kill()`, `proc.wait()` для утилизации процесса из таблицы ОС и закрываются потоковые дескрипторы `stdin`/`stderr`.
-- Учитывает ограничения Android: на `/storage/emulated/0` (монтирование `noexec`) `.sh` файлы запускаются с явным указанием интерпретатора (`/system/bin/sh` или `bash`).
+### 3.2. Event Broker (`event_broker.py`)
+- Central event dispatcher `EventBroker`.
+- Supports two levels of subscribers:
+  1. **In-Memory Handlers**: Python callbacks (`register_handler(pattern, callable)`), executed synchronously within the process.
+  2. **External Script Handlers**: Invocations of external shell and Python scripts located in the `outputs/` directory.
+- Dispatches external handlers via `subprocess.Popen`, passing the JSON envelope over `stdin` with a configurable execution timeout (default 5 seconds).
+- **Zombie Process and FD Leak Protection**: On `subprocess.TimeoutExpired`, it guarantees calls to `proc.kill()`, `proc.wait()` to reap the process from the OS process table, and closes `stdin`/`stderr` stream file descriptors.
+- Accommodates Android constraints: on `/storage/emulated/0` (`noexec` mount), `.sh` scripts are executed with an explicit interpreter (`/system/bin/sh` or `bash`).
 
 ---
 
-## 4. Входные каналы (`inputs/`)
+## 4. Input Channels (`inputs/`)
 
 1. **FIFO Pipe Listener (`inputs/fifo_input.py`)**
-   - Прослушивает именованный пайп (`mkfifo`), десериализует построчные JSON-события и публикует их в `EventBroker`.
-   - Запуск: `python3 fifo_input.py <path_to_fifo>`.
-   - **FUSE-безопасность**: функция `get_safe_pipe_path` автоматически перенаправляет пути с FUSE-хранилища (`/storage/emulated/0`, `/sdcard`), где `mkfifo` завершается с `PermissionError`, в безопасный внутренний каталог рантайма (`/data/user/0/.../runtime` или `$TMPDIR`).
-   - **Неблокирующая запись**: функция `write_fifo_nonblocking(fifo_path, data)` производит запись через флаг `O_NONBLOCK`, предотвращая зависание при отсутствии активного читателя.
+   - Listens on a named pipe (`mkfifo`), deserializes line-delimited JSON events, and publishes them to the `EventBroker`.
+   - Invocation: `python3 fifo_input.py <path_to_fifo>`.
+   - **FUSE Safety**: The `get_safe_pipe_path` function automatically reroutes paths from FUSE storage (`/storage/emulated/0`, `/sdcard`), where `mkfifo` raises `PermissionError`, to a safe internal runtime directory (`/data/user/0/.../runtime` or `$TMPDIR`).
+   - **Non-blocking Write**: The `write_fifo_nonblocking(fifo_path, data)` function writes using the `O_NONBLOCK` flag, preventing hangs when no reader is connected.
 
 2. **UNIX Domain Socket Listener (`inputs/unix_socket_input.py`)**
-   - Сервер потокового UNIX-сокета (`AF_UNIX`, `SOCK_STREAM`).
-   - Принимает внешние IPC-подключения, собирает входящий буфер по строкам-разделителям `\n` и отправляет события в брокер.
-   - Запуск: `python3 unix_socket_input.py <path_to_socket>`.
+   - UNIX streaming socket server (`AF_UNIX`, `SOCK_STREAM`).
+   - Accepts external IPC connections, buffers incoming streams delimited by `\n`, and forwards events to the broker.
+   - Invocation: `python3 unix_socket_input.py <path_to_socket>`.
 
 3. **Android Broadcast Receiver Bridge (`inputs/broadcast_receiver.sh`)**
-   - Утилита для трансляции Android Intent (например, от `am broadcast` или плагинов) в JSON-конверт шины:
+   - Utility for translating Android Intents (e.g., from `am broadcast` or plugins) into bus JSON envelopes:
      `broadcast_receiver.sh <action> <payload_json> [destination_fifo]`
-   - Формирует событие вида `android.intent.<ACTION>` и записывает в пайп шины или выводит в `stdout`.
-   - Поддерживает безопасное разрешение FUSE-путей и неблокирующую отправку в FIFO (через Python `O_NONBLOCK` или утилиту `timeout`).
+   - Formats events as `android.intent.<ACTION>` and writes them to the bus pipe or `stdout`.
+   - Supports safe FUSE path resolution and non-blocking FIFO writes (via Python `O_NONBLOCK` or the `timeout` utility).
 
-4. **Шаблон кастомного источника (`inputs/templates/template_input.sh`)**
-   - Готовая заготовка для создания пользовательских генераторов событий (сенсоры, хуки, вебхуки) со встроенной защитой от блокировок FIFO.
-
----
-
-## 5. Потоковые перехватчики (`interceptors/`)
-
-Перехватчики используются при запуске серверного ядра (`modules/runner/start_core.sh`), где `stdout` и `stderr` ядра перенаправляются в конвейер `stream_splitter.py`.
-
-### 5.1. Расщепитель потока (`stream_splitter.py`)
-- Читает строки из `sys.stdin`.
-- Безусловно дублирует их в `sys.stdout` (сохраняя сквозной лог процесса).
-- **Асинхронная очередь событий (Queue Worker)**: публикация перехваченных событий вынесена в очередь `queue.Queue` с отдельным фоновым потоком-демоном. Благодаря этому диспетчеризация событий и внешние скрипты-обработчики не блокируют чтение `stdout`/`stderr` серверного ядра.
-- Параллельно прогоняет каждую строку через цепочку фильтров `FILTERS`.
-- Если фильтр распознает маркер события, формируется конверт `envelope.create_event` и помещается в очередь на публикацию.
-
-### 5.2. Модули фильтров (`interceptors/filters/`)
-- `filter_open_url.py`: Перехватывает префиксы `AGY_OPEN_URL=`, `ANTIGRAVITY_OPEN_URL:` и OAuth-ссылки (`accounts.google.com`, `/auth/callback`), генерируя событие `core.url.open`.
-- `filter_task_events.py`: Отслеживает фазы задач агента (`[task:start]`, `[task:done]`, `tool_call:`), генерируя `agent.task.started`, `agent.task.completed`, `agent.tool.executed`.
-- `filter_error_alerts.py`: Отслеживает фатальные ошибки (`panic:`, `fatal error:`, `sigsegv`, `sigill`), генерируя `system.error`.
+4. **Custom Source Template (`inputs/templates/template_input.sh`)**
+   - Ready-to-use template for creating custom event generators (sensors, hooks, webhooks) with built-in FIFO blocking protection.
 
 ---
 
-## 6. Выходные обработчики (`outputs/`)
+## 5. Stream Interceptors (`interceptors/`)
+
+Interceptors are utilized during core server launch (`modules/runner/start_core.sh`), where core `stdout` and `stderr` are piped into `stream_splitter.py`.
+
+### 5.1. Stream Splitter (`stream_splitter.py`)
+- Reads lines from `sys.stdin`.
+- Unconditionally duplicates them to `sys.stdout` (preserving the process passthrough log).
+- **Asynchronous Event Queue (Queue Worker)**: Intercepted event publishing is offloaded to a `queue.Queue` serviced by an independent daemon background thread. This ensures event dispatching and external handler scripts never block the core server's `stdout`/`stderr` reads.
+- Evaluates each line concurrently across the `FILTERS` chain.
+- When a filter identifies an event marker, an envelope is generated via `envelope.create_event` and enqueued for publication.
+
+### 5.2. Filter Modules (`interceptors/filters/`)
+- `filter_open_url.py`: Intercepts prefixes `AGY_OPEN_URL=`, `ANTIGRAVITY_OPEN_URL:`, and OAuth URLs (`accounts.google.com`, `/auth/callback`), emitting `core.url.open`.
+- `filter_task_events.py`: Tracks agent task phases (`[task:start]`, `[task:done]`, `tool_call:`), emitting `agent.task.started`, `agent.task.completed`, `agent.tool.executed`.
+- `filter_error_alerts.py`: Monitors fatal errors (`panic:`, `fatal error:`, `sigsegv`, `sigill`), emitting `system.error`.
+
+---
+
+## 6. Output Handlers (`outputs/`)
 
 1. **Android Tray Notifier (`outputs/notify_tray.sh`)**
-   - Принимает JSON события из `stdin`.
-   - Извлекает имя события и текст сообщения.
-   - Отправляет системное уведомление Android через утилиту `agy-notify` или через `am broadcast -a dev.continuum.antigravity.ACTION_NOTIFY`.
+   - Reads event JSON from `stdin`.
+   - Extracts the event name and message body.
+   - Posts an Android system notification via `agy-notify` or `am broadcast -a dev.continuum.antigravity.ACTION_NOTIFY`.
 
 2. **Android Browser Intent Emitter (`outputs/broadcast_emitter.sh`)**
-   - Принимает событие `core.url.open`.
-   - Извлекает поле `url` и отправляет Android Broadcast `dev.continuum.antigravity.ACTION_OPEN_URL` для открытия во внешнем браузере или Custom Tabs.
+   - Receives `core.url.open` events.
+   - Extracts the `url` field and broadcasts Android Intent `dev.continuum.antigravity.ACTION_OPEN_URL` for opening in an external browser or Custom Tabs.
 
 3. **Persistent JSONL Logger (`outputs/file_sink.py`)**
-   - Записывает каждое входящее событие в append-only файл логов (по умолчанию `~/.gemini/events.jsonl` или переменную `AGY_EVENT_LOG`).
+   - Writes every incoming event to an append-only log file (defaults to `~/.gemini/events.jsonl` or the `AGY_EVENT_LOG` variable).
 
 4. **UNIX Socket Emitter (`outputs/unix_socket_emitter.py`)**
-   - Пересылает события внешним фоновым процессам или демонам через клиентское подключение к UNIX-сокету.
+   - Forwards events to external background processes or daemons via a UNIX socket client connection.
 
 ---
 
-## 7. Модульное тестирование (`tests/`)
+## 7. Unit Testing (`tests/`)
 
-Тестовый набор покрывает ключевые компоненты шины и проверяет корректность сериализации и маршрутизации.
+The test suite covers key bus components, verifying serialization accuracy and routing logic.
 
-### 7.1. Запуск всех тестов
+### 7.1. Running All Tests
 ```bash
 bash modules/io/tests/run_all.sh
 ```
 
-### 7.2. Состав тестов
-| Тестовый файл | Проверяемый компонент | Проверяемый сценарий |
+### 7.2. Test Suite Structure
+| Test File | Verified Component | Verified Scenario |
 | :--- | :--- | :--- |
-| `test_envelope.py` | `envelope.py` | Валидация типов, создание конверта, roundtrip сериализация/десериализация, отсечение невалидных схем |
-| `test_event_broker.py` | `SubscriberRouter`, `EventBroker` | Wildcard-фильтрация маршрутов (`*`, `core.*`), in-memory диспетчеризация, таймаут внешних скриптов с вызовом `proc.kill()`/`proc.wait()` и закрытием FD (`test_03_timeout_cleanup`) |
-| `test_fifo_io.py` | `fifo_input.py`, `EventBroker` | Интеграционный тест: создание FIFO, фоновый поток слушателя, публикация и прием события, перенаправление FUSE-путей, неблокирующая запись без читателя |
-| `test_stream_splitter.py` | `stream_splitter.py`, фильтры | Прогон через `io.StringIO`: сохранение исходного потока + генерация `core.url.open` и `system.error`, асинхронная очередь событий через `queue.Queue` без задержек потока ядра |
-| `run_all.sh` | Все компоненты | Синтаксическая валидация Python (`compileall`) и Bash (`bash -n`) + последовательный запуск модульных тестов |
+| `test_envelope.py` | `envelope.py` | Type validation, envelope creation, roundtrip serialization/deserialization, invalid schema rejection |
+| `test_event_broker.py` | `SubscriberRouter`, `EventBroker` | Wildcard route filtering (`*`, `core.*`), in-memory dispatching, external script timeouts with `proc.kill()`/`proc.wait()` and FD cleanup (`test_03_timeout_cleanup`) |
+| `test_fifo_io.py` | `fifo_input.py`, `EventBroker` | Integration test: FIFO creation, background listener thread, event publishing and receiving, FUSE path rerouting, non-blocking write without reader |
+| `test_stream_splitter.py` | `stream_splitter.py`, filters | `io.StringIO` test: original stream preservation + generation of `core.url.open` and `system.error`, asynchronous event queue via `queue.Queue` without core stream delays |
+| `run_all.sh` | All components | Syntax validation for Python (`compileall`) and Bash (`bash -n`) + sequential execution of unit tests |
 
 ---
 
-## 8. Аудит надёжности и технический долг
+## 8. Reliability Audit and Technical Debt
 
-В ходе аудита были выявлены и устранены критические архитектурные и платформенные проблемы:
+During the audit, critical architectural and platform-specific issues were identified and resolved:
 
-### 8.1. Разбор JSON в Shell-скриптах [РЕШЕНО]
-- **Проблема**: В `notify_tray.sh`, `broadcast_emitter.sh` и `template_output.sh` использовался наивный парсинг JSON через `grep -o '"url":"[^"]*'`. Стандартный Python `json.dumps()` вставляет пробел после двоеточия (`"url": "..."`), из-за чего поля не извлекались.
-- **Решение**: Регулярные выражения обновлены с поддержкой произвольных пробельных символов `[[:space:]]*:[[:space:]]*` (`"url"[[:space:]]*:[[:space:]]*"[^"]*`). Проверена совместимость с `/system/bin/sh` (Toybox) и Bash на Android.
+### 8.1. JSON Parsing in Shell Scripts [RESOLVED]
+- **Issue**: `notify_tray.sh`, `broadcast_emitter.sh`, and `template_output.sh` used naive JSON parsing via `grep -o '"url":"[^"]*'`. Standard Python `json.dumps()` includes whitespace after colons (`"url": "..."`), causing field extraction to fail.
+- **Solution**: Regular expressions were updated to support arbitrary whitespace `[[:space:]]*:[[:space:]]*` (`"url"[[:space:]]*:[[:space:]]*"[^"]*`). Compatibility verified across `/system/bin/sh` (Toybox) and Bash on Android.
 
-### 8.2. Блокирующие вызовы и риск зависания ядра (Head-of-Line Blocking) [РЕШЕНО]
-- **Проблема**: `stream_splitter.py` подключен напрямую в `stdout` основного сервера ядра. При обнаружении URL или ошибки синхронный вызов `broker.publish()` приводил к заполнению буфера пайпа Linux (64 КБ) и блокировке ядра.
-- **Решение**: Публикация событий в `stream_splitter.py` переведена на асинхронную модель с использованием `queue.Queue` и фонового потока-демона. Потоки `stdout`/`stderr` вычитываются и сбрасываются мгновенно.
+### 8.2. Blocking Calls and Core Freeze Risk (Head-of-Line Blocking) [RESOLVED]
+- **Issue**: `stream_splitter.py` is attached directly to the main core server's `stdout`. When a URL or error was detected, synchronous `broker.publish()` calls caused the Linux pipe buffer (64 KB) to fill up, freezing the core engine.
+- **Solution**: Event publishing in `stream_splitter.py` was migrated to an asynchronous architecture using `queue.Queue` and a background daemon worker thread. `stdout`/`stderr` streams are read and flushed immediately.
 
-### 8.3. Утечка файловых дескрипторов и зомби-процессы при таймауте `subprocess.Popen` [РЕШЕНО]
-- **Проблема**: В `event_broker.py` при таймауте процесса `subprocess.TimeoutExpired` дочерний процесс продолжал висеть в фоне, а дескрипторы `stdin`/`stderr` не закрывались.
-- **Решение**: Добавлен специализированный блок `except subprocess.TimeoutExpired`, гарантированно вызывающий `proc.kill()`, `proc.wait()` (устраняющий зомби в таблице процессов ОС) и закрывающий открытые файловые дескрипторы `stdin` и `stderr`.
+### 8.3. File Descriptor Leaks and Zombie Processes on `subprocess.Popen` Timeout [RESOLVED]
+- **Issue**: In `event_broker.py`, when a process timed out with `subprocess.TimeoutExpired`, child processes remained lingering in the background, and `stdin`/`stderr` file descriptors were never closed.
+- **Solution**: Added a dedicated `except subprocess.TimeoutExpired` block that reliably calls `proc.kill()`, `proc.wait()` (reaping zombies from the OS process table), and closes open `stdin` and `stderr` file descriptors.
 
-### 8.4. Блокировка записи в FIFO без читателя [РЕШЕНО]
-- **Проблема**: В `broadcast_receiver.sh` и шаблонах прямая запись `echo "$JSON" > "$FIFO"` блокировалась в соответствии со спецификацией POSIX до подключения читателя.
-- **Решение**: В `broadcast_receiver.sh` и `template_input.sh` добавлена неблокирующая отправка через Python `os.O_NONBLOCK` или утилиту `timeout 1s`. В `fifo_input.py` добавлена функция `write_fifo_nonblocking`.
+### 8.4. FIFO Write Blocking Without Active Reader [RESOLVED]
+- **Issue**: In `broadcast_receiver.sh` and templates, direct writes `echo "$JSON" > "$FIFO"` blocked per POSIX specification until a reader attached.
+- **Solution**: Added non-blocking writes via Python `os.O_NONBLOCK` or the `timeout 1s` utility in `broadcast_receiver.sh` and `template_input.sh`. Added `write_fifo_nonblocking` to `fifo_input.py`.
 
-### 8.5. Несовместимость FIFO и UNIX-сокетов с Android FUSE [РЕШЕНО]
-- **Проблема**: Попытка создать именованный пайп (`mkfifo`) на `/storage/emulated/0/...` вызывала `PermissionError: [Errno 13] Permission denied`.
-- **Решение**: Реализовано автоматическое распознавание FUSE-префиксов (`/storage/`, `/sdcard/`, `/mnt/`) в `get_safe_pipe_path` (`fifo_input.py`) и `broadcast_receiver.sh`, с прозрачным перенаправлением пайпов во внутреннее хранилище приложения (`/data/user/0/.../runtime` или `$TMPDIR`).
+### 8.5. FIFO and UNIX Socket Incompatibility with Android FUSE [RESOLVED]
+- **Issue**: Attempting to create a named pipe (`mkfifo`) on `/storage/emulated/0/...` resulted in `PermissionError: [Errno 13] Permission denied`.
+- **Solution**: Implemented automatic recognition of FUSE prefixes (`/storage/`, `/sdcard/`, `/mnt/`) in `get_safe_pipe_path` (`fifo_input.py`) and `broadcast_receiver.sh`, transparently redirecting pipes to internal application storage (`/data/user/0/.../runtime` or `$TMPDIR`).
 
-### 8.6. Дублирование кода с Java-уровнем
-- **Статус**: Архитектурный бэклог. Логика распознавания ссылок и префиксов в `filter_open_url.py` дублирует `OpenUrlWatcher.java`. Рекомендуется использовать единую шину через `broadcast_receiver.sh` в последующих заходах.
+### 8.6. Code Duplication with the Java Layer
+- **Status**: Architectural backlog. Link and prefix detection logic in `filter_open_url.py` duplicates `OpenUrlWatcher.java`. Unifying via `broadcast_receiver.sh` is recommended for future iterations.
