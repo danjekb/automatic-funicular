@@ -91,6 +91,18 @@ public final class CoreServerService extends Service {
             File logFile = new File(logsDir, "model-proxy.log");
             File dataDir = new File(getFilesDir(), ".gemini/antigravity-app");
             dataDir.mkdirs();
+            try {
+                dataDir.setReadable(true, false);
+                dataDir.setWritable(true, false);
+                dataDir.setExecutable(true, false);
+                File[] files = dataDir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        f.setReadable(true, false);
+                        f.setWritable(true, false);
+                    }
+                }
+            } catch (Exception ignored) {}
             File tmpDir = new File(getFilesDir(), "usr/tmp");
             tmpDir.mkdirs();
 
