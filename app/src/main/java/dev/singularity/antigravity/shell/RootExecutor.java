@@ -24,7 +24,9 @@ public final class RootExecutor {
             return "error: empty command";
         }
         File su = locator.suBinary();
-        String suPath = (su != null && su.canExecute()) ? su.getAbsolutePath() : "su";
+        String suPath = (su != null && su.getAbsolutePath().indexOf('/') >= 0)
+                ? su.getAbsolutePath()
+                : "su";
 
         ProcessBuilder pb = new ProcessBuilder(
                 suPath,
@@ -33,6 +35,13 @@ public final class RootExecutor {
         pb.redirectErrorStream(true);
         Map<String, String> env = pb.environment();
         env.remove("LD_LIBRARY_PATH");
+        env.remove("LD_PRELOAD");
+        // The su wrapper and the commands it spawns may need helpers from
+        // $PREFIX/bin; make sure they are on PATH.
+        String home = appContext.getFilesDir().getAbsolutePath();
+        String existingPath = env.get("PATH");
+        env.put("PATH", home + "/usr/bin:" + home + "/runtime/bin:/system/bin"
+                + (existingPath != null ? ":" + existingPath : ""));
         pb.directory(appContext.getFilesDir());
         Process process = null;
         try {

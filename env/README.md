@@ -181,6 +181,57 @@ Two distinct execution runtimes coexist in Singularity:
 
 ---
 
+## 4.5. Self-Heal System (`env/overlay/bin/agy-selfheal`, `agy_tools.sh op_selfheal`)
+
+Ported from Leostryx commit `3adad91`. The self-heal system automatically verifies and repairs the Singularity environment, ensuring all required patches, bridges, and JVM truststore configuration are in place.
+
+### Components
+
+| File | Purpose |
+|------|---------|
+| `env/overlay/bin/agy-selfheal` | Self-heal binary/script that verifies and applies patches to the core language_server binary. |
+| `env/overlay/etc/profile.d/65-agy-jvm.sh` | JVM truststore normalization script (exports PKCS12 cacerts with password `changeit`). |
+| `env/overlay/lib/daemon/scheduler.py` | Background daemon scheduler for periodic self-heal and maintenance tasks. |
+| `agy_tools.sh` (`op_selfheal`) | CLI entry point: `agy-tools selfheal` runs verification and patching. |
+| `agy_tools.sh` (`op_jvm_truststore_normalize`) | Normalizes JVM truststore for HTTPS connectivity. |
+| `agy_tools.sh` (`op_write_env`) | Writes environment configuration files. |
+| `agy_tools.sh` (`op_refresh_bridges`) | Refreshes bridge symlinks and scripts. |
+
+### Self-Heal Operations
+
+The self-heal system patches the following signatures in the `language_server` binary:
+
+- `cli_gate` — CLI gate bypass
+- `enterprise_auth` — Enterprise authentication bypass
+- `faccessat` — File access patch
+- `fchmodat` — File chmod patch
+- `sigill_handler` — SIGILL handler (LSE compatibility)
+- `resolv_redirect` — DNS resolution redirect
+- `crash_suppressor` — Crash suppression
+- `pty_shell` — PTY shell support
+
+### Idempotency
+
+All self-heal operations are idempotent:
+- First run: `@@selfheal fixed=N` (where N is the number of fixes applied)
+- Subsequent runs: `@@selfheal fixed=0` (no changes needed)
+
+### Usage
+
+```bash
+# Run self-heal verification and patching
+agy-tools selfheal
+
+# Normalize JVM truststore
+agy-tools jvm_truststore_normalize
+
+# Write environment configuration
+agy-tools write_env
+
+# Refresh bridges
+agy-tools refresh_bridges
+```
+
 ## 5. Audit Findings: Identified Workarounds, Overhead, and Defects
 
 In-depth analysis of the `env/` codebase revealed the following issues and bottlenecks:

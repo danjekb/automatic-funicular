@@ -69,16 +69,15 @@ case "$SOURCE" in
         ;;
 esac
 
-echo "[*] [08_sign] Signing APK..."
+echo "[*] [08_sign] Signing APK with jarsigner..."
 mkdir -p "$(dirname "$OUT_APK")"
 
-apksigner sign \
-    --ks "$KEYSTORE" \
-    --ks-key-alias "$KEY_ALIAS" \
-    --ks-pass "pass:$STORE_PASS" \
-    --key-pass "pass:$KEY_PASS" \
-    --min-sdk-version "${MIN_API:-24}" \
-    --out "$OUT_APK" \
-    "$ALIGNED_APK"
+jarsigner \
+    -keystore "$KEYSTORE" \
+    -storepass "$STORE_PASS" \
+    -keypass "$KEY_PASS" \
+    -signedjar "$OUT_APK" \
+    "$ALIGNED_APK" \
+    "$KEY_ALIAS"
 
 echo "[OK] [08_sign] Signed APK created: $OUT_APK ($(stat -c%s "$OUT_APK") bytes)"

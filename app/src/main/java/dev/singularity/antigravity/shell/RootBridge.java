@@ -22,20 +22,18 @@ public class RootBridge {
         if (cachedAvailable != null) {
             return cachedAvailable;
         }
+        // suBinary() probes each candidate with a real `su -c id` round-trip and
+        // returns a path only when it actually yields uid=0. A bare "su" fallback
+        // means no candidate granted root.
         File su = locator.suBinary();
-        if (su != null && su.exists() && su.canExecute()) {
-            cachedAvailable = true;
-            return true;
+        boolean ok = su != null
+                && su.getAbsolutePath().indexOf('/') >= 0
+                && su.canExecute();
+        cachedAvailable = ok;
+        if (!ok) {
+            android.util.Log.w("RootBridge", "su unavailable: no candidate granted uid=0");
         }
-        try {
-            Process p = new ProcessBuilder("su", "-c", "id").start();
-            int code = p.waitFor();
-            cachedAvailable = (code == 0);
-            return cachedAvailable;
-        } catch (Exception e) {
-            cachedAvailable = false;
-            return false;
-        }
+        return ok;
     }
 
     /** Runs `cmd` as root via su. Returns combined stdout/stderr; errors are text. */

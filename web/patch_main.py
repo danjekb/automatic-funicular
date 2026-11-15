@@ -192,11 +192,13 @@ def patch_main(file_path):
         'var u=(window.Android&&typeof window.Android.getModelManagerUrl==="function"&&window.Android.getModelManagerUrl())||window.__APP_CONFIG__?.modelManagerUrl||"http://127.0.0.1:50996/_addon/";'
         'window.open(u,"_blank");'
         '}},"Open Dashboard")}))),'
+        'A.createElement(w3,{title:"Subagents",subtitle:"Autonomous specialized agents running in isolated background contexts."},'
+        'A.createElement("div",{key:"subagents-container",ref:function(x){if(x&&window.__agySubagentsMount){window.__agySubagentsMount(x);}}})),'
     )
     if models_target in content and "Antigravity Model Manager" not in content:
         content = content.replace(models_target, models_repl, 1)
         modified = True
-        print("[web-patch] Injected Model Manager dashboard button into Models screen")
+        print("[web-patch] Injected Model Manager & Subagents panel into Models screen")
 
     # 8a. Add "AMOLED Black" theme preset to Jrc.dark
     jrc_target = 'dark:{"Default Dark":{background:"#101010",foregroundOverride:"#cccccc",\nprimary:"#007acc"},'
@@ -228,6 +230,144 @@ def patch_main(file_path):
         content = content.replace(clamp_target, clamp_repl, 1)
         modified = True
         print("[web-patch] Unclamped black to #000000 and wired AMOLED visual theme sync")
+
+    # 9. Item 1: Arbitrary file attachments & 10 MB text limit (ported from Leostryx)
+    #    Idempotent: skips if already patched ("agyMimeForName" present).
+    if "agyMimeForName" not in content:
+        EXT_MIME = {
+            "py": "text/x-python", "pyw": "text/x-python", "js": "text/javascript",
+            "mjs": "text/javascript", "cjs": "text/javascript", "jsx": "text/javascript",
+            "ts": "text/x-typescript", "tsx": "text/x-typescript", "json": "application/json",
+            "jsonl": "application/json", "ipynb": "application/json", "md": "text/markdown",
+            "markdown": "text/markdown", "mdx": "text/markdown", "rst": "text/plain",
+            "txt": "text/plain", "log": "text/plain", "csv": "text/csv", "tsv": "text/csv",
+            "html": "text/html", "htm": "text/html", "xhtml": "text/html", "css": "text/css",
+            "scss": "text/css", "sass": "text/css", "less": "text/css", "xml": "text/xml",
+            "xsl": "text/xml", "svg": "image/svg+xml", "yaml": "application/yaml",
+            "yml": "application/yaml", "toml": "application/toml", "ini": "text/plain",
+            "cfg": "text/plain", "conf": "text/plain", "properties": "text/plain",
+            "env": "text/plain", "sh": "application/x-sh", "bash": "application/x-sh",
+            "zsh": "application/x-sh", "fish": "application/x-sh", "bat": "text/plain",
+            "cmd": "text/plain", "ps1": "text/plain", "c": "text/x-c", "h": "text/x-c",
+            "cc": "text/x-c++", "cpp": "text/x-c++", "cxx": "text/x-c++", "hpp": "text/x-c++",
+            "cs": "text/plain", "java": "text/x-java", "kt": "text/plain", "kts": "text/plain",
+            "scala": "text/plain", "swift": "text/plain", "go": "text/x-go", "rs": "text/x-rust",
+            "rb": "text/x-ruby", "php": "text/x-php", "pl": "text/x-perl", "lua": "text/x-lua",
+            "r": "text/plain", "m": "text/plain", "mm": "text/plain", "dart": "text/plain",
+            "gradle": "text/plain", "groovy": "text/plain", "sql": "application/sql",
+            "proto": "text/plain", "graphql": "text/plain", "gql": "text/plain",
+            "diff": "text/plain", "patch": "text/plain", "srt": "text/plain",
+            "vtt": "text/vtt", "ass": "text/plain", "tex": "text/x-tex", "bib": "text/plain",
+            "makefile": "text/plain", "mk": "text/plain", "dockerfile": "text/plain",
+            "gitignore": "text/plain",
+            "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
+            "webp": "image/webp", "bmp": "image/bmp", "ico": "image/x-icon",
+            "avif": "image/avif", "heic": "image/heic",
+            "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime",
+            "avi": "video/x-msvideo", "mkv": "video/x-matroska",
+            "mp3": "audio/mpeg", "wav": "audio/wav", "m4a": "audio/mp4", "aac": "audio/aac",
+            "ogg": "audio/ogg", "flac": "audio/flac", "opus": "audio/opus", "weba": "audio/webm",
+            "pdf": "application/pdf", "zip": "application/zip",
+            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "doc": "application/msword", "xls": "application/vnd.ms-excel",
+            "ppt": "application/vnd.ms-powerpoint",
+            "gz": "application/gzip", "tgz": "application/gzip", "tar": "application/x-tar",
+            "7z": "application/x-7z-compressed", "rar": "application/vnd.rar",
+            "apk": "application/vnd.android.package-archive",
+            "ttf": "font/ttf", "otf": "font/otf", "woff": "font/woff", "woff2": "font/woff2",
+        }
+        import json as _json
+
+        mime_map_js = (
+            'function agyMimeForName(a){'
+            'a=(a||"").slice((a||"").lastIndexOf(".")+1).toLowerCase();'
+            'return ' + _json.dumps(EXT_MIME, ensure_ascii=True) + '[a]||""}'
+        )
+
+        generic_attach = (
+            'else if(m.size===0)e?.("File is empty"),'
+            'g("validation_check_failed",Error("File is empty"));'
+            'else if(m.size>20971520)e?.("File size exceeds 20MB limit"),'
+            'g("validation_check_failed",Error("File size exceeds 20MB limit"));'
+            'else try{'
+            'let x=m.type&&m.type!=="application/octet-stream"?m.type:agyMimeForName(m.name)||"",'
+            'y=new Uint8Array(q(await n(m.arrayBuffer())));'
+            'if(!x||x==="application/octet-stream"){'
+            'let z=Math.min(y.length,65536),t=0,i=0;'
+            'for(;i<z;i++){let c=y[i];if(c===0||c===127){t=1;break}if(c<7||c>13&&c<32)t++}'
+            'x=!t||t/Math.max(z,1)<0.02?"text/plain":"application/octet-stream"'
+            '}'
+            'let B=p(I.MediaSchema,{mimeType:x,description:m.name,payload:{case:"inlineData",value:y}});'
+            'BB(m)&&AB.set(B,m);'
+            'a([B])'
+            '}catch(x){q(),g("validation_check_failed",x)}'
+        )
+
+        drop_old = (
+            'Array.from(v.dataTransfer?.items||[]).some(w=>w.kind==="file"&&'
+            '(CB("",w.type)||w.type.startsWith("image/")||w.type.startsWith("video/")||'
+            'w.type.startsWith("audio/")||w.type==="application/pdf"||xNa(w.type)||pNa.includes(w.type)))'
+        )
+        drop_new = 'Array.from(v.dataTransfer?.items||[]).some(w=>w.kind==="file")'
+
+        filter_old = '!y.has(C.name)&&CB(C.name,C.type)&&B.items.add(C)'
+        filter_new = '!y.has(C.name)&&B.items.add(C)'
+
+        text_re = re.compile(
+            r'if\(u\)if\(m\.size>1048576\)e\?\.\("Text file size exceeds 1MB limit"\),'
+            r'\s*g\("validation_check_failed",\s*Error\("Text file size exceeds 1MB limit"\)\);'
+        )
+        text_new = (
+            'if(u)if(m.size>10485760)e?.("Text file size exceeds 10MB limit"),'
+            'g("validation_check_failed",Error("Text file size exceeds 10MB limit"));'
+        )
+
+        guard_mark = "__agyBlockUnsupportedMedia"
+        guard_toast_old = (
+            'if(LNa(a,b.supportedMimeTypes))'
+            'return"Selected model does not support this media type"'
+        )
+        guard_toast_new = (
+            'if(window.__agyBlockUnsupportedMedia===!0&&LNa(a,b.supportedMimeTypes))'
+            'return"Selected model does not support this media type"'
+        )
+        guard_send_old = 'if(LNa(l,r.supportedMimeTypes))throw Error("Your model does not support this media. Please select a different model to send this message, or remove the media.");'
+        guard_send_new = 'if(window.__agyBlockUnsupportedMedia===!0&&LNa(l,r.supportedMimeTypes))throw Error("Your model does not support this media. Please select a different model to send this message, or remove the media.");'
+
+        upstream_mark = 'var u5a=(a,b,c,e,f=5)=>{'
+
+        def _sub_once(src, old, new, label):
+            n = src.count(old)
+            assert n == 1, f"[web-patch] {label}: expected 1 occurrence, got {n}"
+            print(f"  [web-patch] [ok] {label}")
+            return src.replace(old, new, 1)
+
+        content = _sub_once(content, upstream_mark, mime_map_js + "\n" + upstream_mark, "A mime resolver")
+        content = _sub_once(content, drop_old, drop_new, "B dragover filter")
+        content = _sub_once(content, filter_old, filter_new, "B drop filter")
+
+        assert content.count('else e?.("Unsupported file format")') == 1, \
+            "[web-patch] C: 'Unsupported file format' expected exactly 1 occurrence"
+        content = _sub_once(content, 'else e?.("Unsupported file format")', generic_attach, "C generic attach")
+
+        text_cap_old = 'if(u)if(m.size>1048576)e?.("Text file size exceeds 1MB limit"),'
+        text_cap_new = 'if(u)if(m.size>10485760)e?.("Text file size exceeds 10MB limit"),'
+        n_text_cap = content.count(text_cap_old)
+        assert n_text_cap >= 1, "[web-patch] D: text cap pattern not found"
+        content = content.replace(text_cap_old, text_cap_new)
+        print(f"  [web-patch] [ok] D text cap 1MB->10MB ({n_text_cap} occurrences replaced)")
+        assert "Unsupported file format" not in content
+
+        if guard_mark not in content:
+            content = _sub_once(content, guard_toast_old, guard_toast_new, "E attach-time guard")
+            content = _sub_once(content, guard_send_old, guard_send_new, "E send-time guard")
+
+        modified = True
+        print("[web-patch] Item 1: arbitrary file attachments & 10 MB text limit applied")
+    else:
+        print("[web-patch] Item 1: already patched (agyMimeForName present), skipping.")
 
     if modified:
         with open(file_path, "w", encoding="utf-8") as f:

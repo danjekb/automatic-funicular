@@ -61,3 +61,7 @@ src/patches/startup_ready/public-api.js
 
 bundle iife patches/shield.js
 src/patches/shield/shield.js
+
+bundle iife patches/subagents.js
+src/patches/subagents/agy_subagents.js
+

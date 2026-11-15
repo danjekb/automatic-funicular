@@ -101,7 +101,7 @@ fi
 echo "============================================================"
 
 # Check host tools
-for tool in python3 aapt javac java apksigner; do
+for tool in python3 aapt javac java jarsigner; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "[ERROR] Missing required build tool: $tool" >&2
         echo "        See docs/BUILDING.md for the host toolchain." >&2
