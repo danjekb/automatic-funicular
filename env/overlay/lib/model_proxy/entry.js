@@ -4,7 +4,30 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const dns = require('node:dns');
 const { randomBytes, randomUUID } = require('node:crypto');
+
+// On Android, Bionic getaddrinfo can fail in daemonized userspace.
+// Hook dns.lookup to resolve via public DNS (Google/Cloudflare) over c-ares.
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1', '8.8.4.4', '1.0.0.1']);
+  const origLookup = dns.lookup;
+  dns.lookup = function(hostname, options, callback) {
+    if (typeof options === 'function') {
+      callback = options;
+      options = {};
+    }
+    dns.resolve4(hostname, (err, addrs) => {
+      if (!err && addrs && addrs.length > 0) {
+        if (options && options.all) {
+          return callback(null, addrs.map(a => ({ address: a, family: 4 })));
+        }
+        return callback(null, addrs[0], 4);
+      }
+      origLookup(hostname, options, callback);
+    });
+  };
+} catch (_) {}
 
 function parseArgs(argv) {
   const opts = {

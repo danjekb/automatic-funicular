@@ -1,6 +1,6 @@
-# Antigravity Core Binary Patcher (`modules/patches`)
+# Singularity Core Binary Patcher (`modules/patches`)
 
-Targeted binary patching module for the Antigravity `language_server` core targeting the **Android ARM64 (aarch64)** architecture. Bypasses platform constraints (Android seccomp filters, Bionic libc assumptions, lack of hardware LSE atomics on ARMv8.0-A) and facilitates seamless runtime integration.
+Targeted binary patching module for the Singularity / Antigravity `language_server` core targeting the **Android ARM64 (aarch64)** architecture. Bypasses platform constraints (Android seccomp filters, Bionic libc assumptions, lack of hardware LSE atomics on ARMv8.0-A) and facilitates seamless runtime integration.
 
 ---
 

@@ -1,7 +1,7 @@
-# Antigravity Environment Architecture and Audit (`env/`)
+# Singularity Environment Architecture and Audit (`env/`)
 
 > [!NOTE]
-> This document is the official technical specification and audit report for the rootfs userspace environment in `env/` of Antigravity (AGY v2).
+> This document is the official technical specification and audit report for the rootfs userspace environment in `env/` of Singularity (dev.singularity.antigravity).
 > It details the rootfs composition, the internals of the `pkg` package manager, the dynamic Android/Termux path translation subsystem, ARMv8.1-A+ (LSE) compatibility mechanisms, identified workarounds, performance bottlenecks, and optimization recommendations.
 
 ---
@@ -74,7 +74,7 @@ env/
 
 ### Sandbox Layout in Android Storage
 
-Upon application startup, `dev.continuum.antigravity.install.EnvInstaller` unpacks bundled assets into the application's isolated sandbox:
+Upon application startup, `dev.singularity.antigravity.install.EnvInstaller` unpacks bundled assets into the application's isolated sandbox:
 - **`$HOME`**: `/data/user/<id>/<package_id>/files` (or `/data/data/<package_id>/files` on older Android releases).
 - **`$PREFIX`**: `$HOME/usr` — root of the Bionic rootfs.
 - **`$PREFIX/bin`**: executables (`bash`, `sh`, `git`, `pkg`, `agy-daemon`, etc.).
@@ -120,7 +120,7 @@ The storage model is minimalist and resilient against sudden process termination
 
 ## 3. Dynamic Termux/Android Path Translation
 
-Because upstream Termux packages are pre-compiled with hardcoded paths pointing to `/data/data/com.termux/files/usr`, while AGY runs within arbitrary package sandboxes (e.g. `/data/user/0/dev.continuum.antigravity/files/usr` or `/data/user/10/dev.continuum.antigravity.dev/files/usr`), a three-tiered path translation subsystem is employed:
+Because upstream Termux packages are pre-compiled with hardcoded paths pointing to `/data/data/com.termux/files/usr`, while AGY runs within arbitrary package sandboxes (e.g. `/data/user/0/dev.singularity.antigravity/files/usr` or `/data/user/10/dev.singularity.antigravity.dev/files/usr`), a three-tiered path translation subsystem is employed:
 
 ### Translation Hierarchy
 ```
@@ -167,7 +167,7 @@ The `liblse_compat.so` library resolves this transparently at the Linux kernel l
 4. **Program Counter Advancement:** Following successful instruction emulation, the program counter is advanced by 4 bytes (`uc->uc_mcontext.pc += 4`), returning control immediately to the interrupted thread.
 
 ### Separation of Environments: Bionic vs Glibc (Critical Aspect)
-Two distinct execution runtimes coexist in Antigravity:
+Two distinct execution runtimes coexist in Singularity:
 1. **Core Language Server / Core Daemon:** Runs under **Glibc** in `runtime/`.
 2. **Terminal, bash, pkg tools:** Run under **Android Bionic libc** in `$PREFIX/`.
 
@@ -207,7 +207,7 @@ In-depth analysis of the `env/` codebase revealed the following issues and bottl
   Corrected to the standard expression: `export HOME="${HOME:-$(dirname "$PREFIX")}"`.
 - **Package Specific Shebangs:**
   In `env/pkg/pkg`, `env/overlay/bin/agy-fix-paths`, `env/overlay/bin/agy-notify`, and `env/overlay/bin/agy-upgrade`, the initial shebang line specified:
-  `#!/data/data/dev.continuum.antigravity/files/usr/bin/bash` or `#!/data/user/0/dev.continuum.antigravity/files/usr/bin/bash`.
+  `#!/data/data/dev.singularity.antigravity/files/usr/bin/bash` or `#!/data/user/0/dev.singularity.antigravity/files/usr/bin/bash`.
   These are rewritten dynamically by `TermuxShebangRewriter` during APK installation.
 
 ### 3. Bridge Generation Overhead in `pkg/pkg` [RESOLVED - Round 1]
@@ -220,7 +220,7 @@ In-depth analysis of the `env/` codebase revealed the following issues and bottl
 
 ### 5. Code Duplication in Path Normalization
 Path rewriting logic translating Termux paths to active `$PREFIX` is duplicated across 4 distinct locations:
-1. `dev.continuum.antigravity.install.TermuxPrefixRewriter` / `TermuxShebangRewriter` (Java);
+1. `dev.singularity.antigravity.install.TermuxPrefixRewriter` / `TermuxShebangRewriter` (Java);
 2. `env/pkg/lib/util.sh` -> `rewrite_prefix` function (Bash/sed);
 3. `env/overlay/bin/agy-fix-paths` (Bash/sed);
 4. `env/bootstrap/patch-prefix.py` (Python).

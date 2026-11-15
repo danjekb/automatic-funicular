@@ -1,4 +1,4 @@
-Continuum — Android fork of Antigravity for Android
+Singularity — Android fork of Antigravity for Android
 ==================================================
 
 This product is a modified fork of "Antigravity for Android":
@@ -10,7 +10,7 @@ Licensed under the Apache License, Version 2.0.
 
 Modifications for this fork (application identity, engine compatibility layer,
 in-app updater, release and upstream-sync automation) are Copyright (c) the
-Continuum contributors and are likewise licensed under the Apache License 2.0.
+Singularity contributors and are likewise licensed under the Apache License 2.0.
 
 The fork keeps upstream's Apache-2.0 license text unmodified in LICENSE and
 retains the original project's notices and attribution.

@@ -13,7 +13,7 @@ Output: [`docs/AUDIT.md`](AUDIT.md).
 
 ## S1 — Fork identity (done)
 
-* Package renamed to `dev.continuum.antigravity` across 125 Java files and all
+* Package renamed to `dev.singularity.antigravity` across 125 Java files and all
   scripts/docs (binaries and generated web bundles excluded).
 * Manifest: new package, `versionCode 30`, component names, `${applicationId}.fileprovider`,
   `REQUEST_INSTALL_PACKAGES`, package-installer `<queries>` entry.
@@ -77,7 +77,7 @@ listing the files. It never pushes to `main` and never auto-merges.
 `.github/workflows/build-and-release.yml` — tests → signed ARM64 build (release key
 from secrets, fail closed) → `tools/verify_apk.sh` (package id, version, non-debuggable,
 AArch64 ELF engine, required assets) → tag/version cross-check → `SHA256SUMS.txt` →
-artifacts → GitHub Release with `continuum.apk` + `SHA256SUMS.txt`, which is exactly
+artifacts → GitHub Release with `singularity.apk` + `SHA256SUMS.txt`, which is exactly
 what the updater reads.
 
 ## S6 — Docs and diagnostics (done)
@@ -126,7 +126,7 @@ environment, so these are **not executed** and must be run on hardware:
 
 | Check | How |
 | :--- | :--- |
-| Fresh install | `adb install -r dist/continuum.apk`, first-launch splash → UI |
+| Fresh install | `adb install -r dist/singularity.apk`, first-launch splash → UI |
 | Login/authentication | Sign in with a real Google account; verify token refresh after restart |
 | Existing workspaces | Open a workspace created before an update, check files are intact |
 | Project file access | Read/write a project file through the agent and the file picker |

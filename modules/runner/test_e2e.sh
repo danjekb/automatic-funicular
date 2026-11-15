@@ -5,15 +5,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Dynamic APP_ID detection (dev.continuum.antigravity vs dev.continuum.antigravity.dev)
+# Dynamic APP_ID detection (dev.singularity.antigravity vs dev.singularity.antigravity.dev)
 if [ -n "${AGY_APPLICATION_ID:-}" ]; then
     APP_ID="$AGY_APPLICATION_ID"
 elif [ -n "${HOME:-}" ] && [[ "$HOME" =~ /data/user/0/([^/]+) ]]; then
     APP_ID="${BASH_REMATCH[1]}"
-elif [ -d "/data/user/0/dev.continuum.antigravity.dev" ]; then
-    APP_ID="dev.continuum.antigravity.dev"
+elif [ -d "/data/user/0/dev.singularity.antigravity.dev" ]; then
+    APP_ID="dev.singularity.antigravity.dev"
 else
-    APP_ID="dev.continuum.antigravity"
+    APP_ID="dev.singularity.antigravity"
 fi
 
 APP_BASE="/data/user/0/$APP_ID"

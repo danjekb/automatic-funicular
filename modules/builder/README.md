@@ -7,7 +7,7 @@
 
 ## 1. Architecture Overview
 
-The Antigravity APK build process runs completely independently of heavy build frameworks (Gradle, AGP, Groovy/Kotlin daemon). The orchestrator [`build_apk.sh`](build_apk.sh) executes a sequence of atomic scripts, directly driving low-level Android SDK binary tools (`aapt`, `javac`, `d8`/`r8`, `zipalign`, `apksigner`) and specialized Python utilities.
+The Singularity APK build process runs completely independently of heavy build frameworks (Gradle, AGP, Groovy/Kotlin daemon). The orchestrator [`build_apk.sh`](build_apk.sh) executes a sequence of atomic scripts, directly driving low-level Android SDK binary tools (`aapt`, `javac`, `d8`/`r8`, `zipalign`, `apksigner`) and specialized Python utilities.
 
 ### Pipeline Diagram
 
@@ -46,7 +46,7 @@ flowchart TD
         Unaligned --> P07[align.py: zipalign / python]
         P07 -->|4-byte aligned APK| Aligned[build/aligned.apk]
         Aligned --> P08[08_sign.sh: apksigner]
-        P08 -->|Signed APK (v1+v2+v3)| Dist[dist/antigravity.apk / antigravity-dev.apk]
+        P08 -->|Signed APK (v1+v2+v3)| Dist[dist/singularity.apk / singularity-dev.apk]
         Dist --> P09[09_verify.sh: apksigner verify]
     end
 ```
@@ -64,7 +64,7 @@ flowchart TD
 | **05** | [`05_stage_assets.py`](05_stage_assets.py) | Python 3 + `modules/runner` | Runtime core, `web/`, `env/dist/env` | `build/staging/assets/` | Stages and validates assets (runtime, web, env) |
 | **06** | [`06_package.sh`](06_package.sh) | `aapt` + `zipfile` | Resources + overlay `build/res`, manifest, `classes.dex`, `staging/assets/` | `build/unaligned.apk` | Builds baseline APK with resource overlay and injects dex and assets |
 | **07** | [`align.py`](align.py) | `zipalign` / Python | `build/unaligned.apk` | `build/aligned.apk` | 4-byte ZIP alignment for optimal Android `mmap` performance |
-| **08** | [`08_sign.sh`](08_sign.sh) | `apksigner` | `build/aligned.apk`, `tools/debug.keystore` | `dist/antigravity.apk` or `dist/antigravity-dev.apk` | Signs APK with v1, v2, and v3 signature schemes |
+| **08** | [`08_sign.sh`](08_sign.sh) | `apksigner` | `build/aligned.apk`, `tools/debug.keystore` | `dist/singularity.apk` or `dist/singularity-dev.apk` | Signs APK with v1, v2, and v3 signature schemes |
 | **09** | [`09_verify.sh`](09_verify.sh) | `apksigner` | `dist/*.apk` | Verification report to stdout | Full validation of APK signature integrity and scheme compliance |
 
 ---
@@ -74,13 +74,13 @@ flowchart TD
 ### Step 01: Configuration Generation (`01_gen_config.py`)
 - **Inputs**: Environment variables from `config/app.env` and `DEV_MODE` (0 or 1).
 - **Outputs**:
-  - `build/gen/com/agy/BuildConfig.java`: static fields `PORT`, `GATEWAY_PORT`, `CORE_VERSION`, `APP_VERSION_NAME`, and `DEBUG`.
+  - `build/gen/dev/singularity/antigravity/BuildConfig.java`: static fields `PORT`, `GATEWAY_PORT`, `CORE_VERSION`, `APP_VERSION_NAME`, and `DEBUG`.
   - `build/res/values/gen.xml`: string and integer XML resources for the Android framework (generated inside the build tree, keeping repository working tree and `git status` clean).
-  - `build/AndroidManifest.xml`: substitutes `${applicationId}`, and in dev mode rewrites the package name to `dev.continuum.antigravity.dev`, enables `android:debuggable="true"`, and isolates `permission.INTERNAL_BROADCAST`.
+  - `build/AndroidManifest.xml`: substitutes `${applicationId}`, and in dev mode rewrites the package name to `dev.singularity.antigravity.dev`, enables `android:debuggable="true"`, and isolates `permission.INTERNAL_BROADCAST`.
 
 ### Step 02: R.java Generation (`02_r_java.sh`)
 - Runs `aapt package -m -J <gen_dir>` to parse resources and create numeric IDs with resource overlay support: `-S "$BUILD_DIR/res" -S "$RES_DIR" --auto-add-overlay`.
-- Inspects the package name in the target manifest: if the package matches the default `dev.continuum.antigravity`, the secondary duplicate `aapt` invocation is skipped. If the package name differs (e.g. `dev.continuum.antigravity.dev`), a secondary fallback `dev.continuum.antigravity.R` is generated via `--custom-package dev.continuum.antigravity` for legacy invocation compatibility.
+- Inspects the package name in the target manifest: if the package matches the default `dev.singularity.antigravity`, the secondary duplicate `aapt` invocation is skipped. If the package name differs (e.g. `dev.singularity.antigravity.dev`), a secondary fallback `dev.singularity.antigravity.R` is generated via `--custom-package dev.singularity.antigravity` for legacy invocation compatibility.
 
 ### Step 03: Java Compilation (`03_compile_java.sh`)
 - Gathers the list of application sources and generated classes (`BuildConfig`, `R`) into an argument file `@$BUILD_DIR/java_sources.txt`, eliminating the risk of `ARG_MAX` (`Argument list too long`) errors.
@@ -137,11 +137,11 @@ flowchart TD
 ## 5. Usage
 
 ```bash
-# Standard release APK build (dist/antigravity.apk, port 45157):
+# Standard release APK build (dist/singularity.apk, port 45167):
 bash modules/builder/build_apk.sh
 
-# Build release APK with region bypass (dist/antigravity-region-bypass.apk, port 45157):
-bash modules/builder/build_apk.sh --region-bypass
+# Dev APK build (dist/singularity-dev.apk, port 45168):
+DEV_MODE=1 bash modules/builder/build_apk.sh
 
 # Run builder module test suite:
 bash modules/builder/tests/run_all.sh
@@ -160,8 +160,8 @@ bash modules/builder/tests/run_all.sh
 - **Fix**: Relocated generation to the build tree `$BUILD_DIR/res/values/gen.xml`. Added resource overlay support `-S "$BUILD_DIR/res" -S "$RES_DIR" --auto-add-overlay` to `02_r_java.sh` and `06_package.sh`, allowing generated values to be injected dynamically while keeping the Git working tree clean.
 
 ### 3. Redundant `aapt` Pass in `02_r_java.sh` (Resolved)
-- **Problem**: In release mode, `aapt` executed twice with identical parameters (`dev.continuum.antigravity`), generating unnecessary CPU overhead.
-- **Fix**: Added manifest inspection to `02_r_java.sh` (`PKG=$(sed -n -E 's/.*package="([^"]+)".*/\1/p' "$MANIFEST" | head -n 1)`). If the target package is already `dev.continuum.antigravity`, the duplicate run is skipped. If the package differs (e.g. `dev.continuum.antigravity.dev`), both packages are generated (`dev.continuum.antigravity.dev.R` and compatibility fallback `dev.continuum.antigravity.R`).
+- **Problem**: In release mode, `aapt` executed twice with identical parameters (`dev.singularity.antigravity`), generating unnecessary CPU overhead.
+- **Fix**: Added manifest inspection to `02_r_java.sh` (`PKG=$(sed -n -E 's/.*package="([^"]+)".*/\1/p' "$MANIFEST" | head -n 1)`). If the target package is already `dev.singularity.antigravity`, the duplicate run is skipped. If the package differs (e.g. `dev.singularity.antigravity.dev`), both packages are generated (`dev.singularity.antigravity.dev.R` and compatibility fallback `dev.singularity.antigravity.R`).
 
 ### 4. Command Line Overflow Risk (`ARG_MAX`) (Resolved)
 - **Problem**: In `03_compile_java.sh` and `04_dex.sh`, source files and classes were expanded directly into bash arrays `${JAVA_SOURCES[@]}` and `${CLASS_FILES[@]}`. As the codebase grew, this caused Linux kernel `Argument list too long` (`E2BIG`) errors.
@@ -178,8 +178,8 @@ bash modules/builder/tests/run_all.sh
 - **Recommendation**: Forward `FAST_BUILD` to `05_stage_assets.py` and `06_package.sh` to enable incremental asset packaging and skip unmodified core binaries.
 
 ### 7. Redundant Disk I/O on Flash Storage
-- **Problem**: Full APK disk writes occur 3 times consecutively: `unaligned.apk` (~103 MB) -> `aligned.apk` (~103 MB) -> `dist/antigravity.apk` (~103 MB). Writing over 300 MB per build cycle causes unnecessary flash storage wear on Android devices.
-- **Recommendation**: Output `align.py` directly into the final target `$DIST_DIR/antigravity.apk` and sign it in-place.
+- **Problem**: Full APK disk writes occur 3 times consecutively: `unaligned.apk` (~103 MB) -> `aligned.apk` (~103 MB) -> `dist/singularity.apk` (~103 MB). Writing over 300 MB per build cycle causes unnecessary flash storage wear on Android devices.
+- **Recommendation**: Output `align.py` directly into the final target `$DIST_DIR/singularity.apk` and sign it in-place.
 
 ### 8. Web Build Integration and Manifest Leak Prevention (Resolved)
 - **Problem**: In `05_stage_assets.py`, web assets were copied "as-is" from `web/` without triggering a prior build, which risked shipping stale assets when `web/src/` changed. Additionally, `src.manifest` was missing from `web_ignore`, causing internal source manifests to leak into the APK.

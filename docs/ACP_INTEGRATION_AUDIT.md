@@ -1,4 +1,4 @@
-# ACP integration audit (Continuum 3.2.0-alpha.1)
+# ACP integration audit (Singularity 3.2.0-alpha.1)
 
 What exists today, what Google actually ships, which integration shape is viable on
 the Galaxy A54, and what this milestone does and does not deliver.
@@ -6,7 +6,7 @@ the Galaxy A54, and what this milestone does and does not deliver.
 Everything about `agy` below was checked against Google's own live endpoints and
 docs on 2026-11-14; nothing is inferred from the desktop app.
 
-## 1. Continuum 3.1 architecture (verified in-tree)
+## 1. Singularity 3.1 architecture (verified in-tree)
 
 ```
 MainActivity ──> CoreServerService (foreground service, wake lock)
@@ -38,7 +38,7 @@ AgyWebViewClient ──> LocalAssetServer (filesDir/web, ETag revalidation)
 | ACP sessions | supports loading, resuming, listing, closing |
 | Auth | cached from interactive `agy` / `agy acp --login`; `-32000 Authentication required`; methods include `oauth-personal`, `oauth-business`, `gemini-api-key`, `agent-platform`, `terminal-login` |
 | Session options | Model + Thinking level (`Low`, `Medium`, `High`, `Extra`, `Max`) |
-| Permissions | per-tool approval; `--dangerously-skip-permissions` exists but is never enabled by Continuum |
+| Permissions | per-tool approval; `--dangerously-skip-permissions` exists but is never enabled by Singularity |
 | Models | catalogue is account/plan dependent; Hydrogen available on Free/Pro/Ultra; Carbon Ultra/Enterprise; Argon Pro/Ultra |
 | Hydrogen ids | `gemini-4-hydrogen`, tiers including `-high` and `-xhigh` (`--effort xhigh`) |
 

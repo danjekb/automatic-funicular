@@ -1,4 +1,4 @@
-# Building Continuum
+# Building Singularity
 
 The project does not use Gradle. `build.sh` drives a Python/shell pipeline that
 assembles the APK directly.
@@ -20,9 +20,9 @@ plus staging).
 ## First build
 
 ```bash
-bash tools/gen_keys.sh        # creates keys/continuum-release.jks + keys/keystore.properties
-bash build.sh                 # -> dist/continuum.apk
-bash tools/verify_apk.sh dist/continuum.apk
+bash tools/gen_keys.sh        # creates keys/singularity-release.jks + keys/keystore.properties
+bash build.sh                 # -> dist/singularity.apk
+bash tools/verify_apk.sh dist/singularity.apk
 ```
 
 Both key files are git-ignored. Keep them: Android only upgrades an app when the
@@ -38,7 +38,7 @@ rejected by design.
 DEV_MODE=1 bash build.sh
 ```
 
-This produces `dev.continuum.antigravity.dev` with its own ports, uses the debug
+This produces `dev.singularity.antigravity.dev` with its own ports, uses the debug
 keystore when no release key exists, and can be installed next to a release build.
 
 ## What happens during a build
@@ -78,4 +78,4 @@ bash web/tests/selftest.sh                                # bundles + JS syntax
 ```
 
 The engine probe's end-to-end case needs the real 181 MB archive and is opt-in
-(`AGY_ENGINE_E2E=1`), so the default suite stays fast.
+(`SINGULARITY_ENGINE_E2E=1`), so the default suite stays fast.

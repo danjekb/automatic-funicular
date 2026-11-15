@@ -9,19 +9,19 @@ SPEC_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 
 def get_application_id() -> str:
     """
-    Returns the dynamic application ID based on environment variables or defaults to 'dev.continuum.antigravity'.
+    Returns the dynamic application ID based on environment variables or defaults to 'dev.singularity.antigravity'.
     Priority:
     1. AGY_APPLICATION_ID
     2. APPLICATION_ID
-    3. DEV_MODE detection (if DEV_MODE == "1", default to "dev.continuum.antigravity.dev")
-    4. Default "dev.continuum.antigravity"
+    3. DEV_MODE detection (if DEV_MODE == "1", default to "dev.singularity.antigravity.dev")
+    4. Default "dev.singularity.antigravity"
     """
     app_id = os.environ.get("AGY_APPLICATION_ID") or os.environ.get("APPLICATION_ID")
     if app_id:
         return app_id.strip()
     if os.environ.get("DEV_MODE") == "1":
-        return "dev.continuum.antigravity.dev"
-    return "dev.continuum.antigravity"
+        return "dev.singularity.antigravity.dev"
+    return "dev.singularity.antigravity"
 
 def load_paths(custom_spec: Optional[str] = None, app_id: Optional[str] = None) -> Dict[str, str]:
     path = custom_spec or SPEC_PATH

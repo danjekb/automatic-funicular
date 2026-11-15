@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # build_apk.sh - Master orchestrator for building, dexing, packaging, and signing
-# the Continuum APK (independent fork of Antigravity for Android).
+# the Singularity APK (independent fork of Antigravity for Android).
 #
 # Usage:
-#   bash build.sh                 # release-signed dist/continuum.apk
-#   bash build.sh --dev           # debuggable dist/continuum-dev.apk (PKG_DEV)
+#   bash build.sh                 # release-signed dist/singularity.apk
+#   bash build.sh --dev           # debuggable dist/singularity-dev.apk (PKG_DEV)
 #   bash build.sh --fast          # incremental asset staging
 #   bash build.sh --out <path>    # explicit output path
 #
 # Signing (never committed): a release keystore is read from
-#   $CONTINUUM_KEYSTORE / tools.env KEYSTORE, then keys/continuum-release.jks,
+#   $SINGULARITY_KEYSTORE / $CONTINUUM_KEYSTORE / tools.env KEYSTORE, then keys/singularity-release.jks,
 #   and finally the public AOSP debug key (clearly reported, local builds only).
 #
 # This fork deliberately has no "eligibility bypass" edition: it never disables
@@ -25,10 +25,10 @@ export TOOLS_DIR="$PROJECT_ROOT/tools"
 
 # On-device builds: prefer the fork's own sandbox, then upstream's.
 for candidate in \
-    "/data/user/0/dev.continuum.antigravity.dev/files" \
-    "/data/user/0/dev.continuum.antigravity/files" \
-    "/data/user/0/dev.continuum.antigravity.dev/files" \
-    "/data/user/0/dev.continuum.antigravity/files"; do
+    "/data/user/0/dev.singularity.antigravity.dev/files" \
+    "/data/user/0/dev.singularity.antigravity/files" \
+    "/data/user/0/dev.singularity.antigravity.dev/files" \
+    "/data/user/0/dev.singularity.antigravity/files"; do
     if [ -d "$candidate" ] && [ -w "$candidate" ]; then
         export HOME="$candidate"
         export PATH="$candidate/usr/bin:$PATH"
@@ -93,7 +93,7 @@ else
 fi
 
 echo "============================================================"
-echo "  CONTINUUM FOR ANDROID — APK BUILD PIPELINE"
+echo "  SINGULARITY FOR ANDROID — APK BUILD PIPELINE"
 echo "  $EDITION_LABEL"
 if [ "$FAST_BUILD" = "1" ]; then
     echo "  [MODE: FAST ITERATION (UNCOMPRESSED ASSETS & CACHE)]"

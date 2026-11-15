@@ -11,7 +11,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KEYS_DIR="$PROJECT_ROOT/keys"
-KS="$KEYS_DIR/continuum-release.jks"
+KS="$KEYS_DIR/singularity-release.jks"
 PROPS="$KEYS_DIR/keystore.properties"
 
 FORCE=0
@@ -49,15 +49,15 @@ KEY_PASS="$STORE_PASS"
 "$KEYTOOL" -genkeypair -v \
     -keystore "$KS" \
     -storetype PKCS12 \
-    -alias continuum \
+    -alias singularity \
     -keyalg RSA -keysize 4096 -validity 10000 \
     -storepass "$STORE_PASS" -keypass "$KEY_PASS" \
-    -dname "CN=Continuum for Android, O=Continuum Fork, C=US"
+    -dname "CN=Singularity for Android, O=Singularity Fork, C=US"
 
 cat > "$PROPS" <<EOF
-# Continuum release signing material — DO NOT COMMIT.
+# Singularity release signing material — DO NOT COMMIT.
 # This file and the keystore next to it are git-ignored.
-keyAlias=continuum
+keyAlias=singularity
 keyPassword=$KEY_PASS
 storePassword=$STORE_PASS
 EOF
@@ -67,5 +67,5 @@ echo "[OK] Generated $KS"
 echo "[OK] Wrote $PROPS"
 echo
 echo "Fingerprint:"
-"$KEYTOOL" -list -v -keystore "$KS" -alias continuum -storepass "$STORE_PASS" 2>/dev/null \
+"$KEYTOOL" -list -v -keystore "$KS" -alias singularity -storepass "$STORE_PASS" 2>/dev/null \
     | grep -E "SHA256:|SHA1:" || true

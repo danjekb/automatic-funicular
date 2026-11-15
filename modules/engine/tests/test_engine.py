@@ -4,7 +4,7 @@ test_engine.py - Unit tests for the engine compatibility layer.
 
 The catalogue tests use a synthetic "engine" blob that mimics Go's packed string
 table, so they run in milliseconds and do not need the 180 MB core binary. A
-real-engine test runs only when CONTINUUM_ENGINE_E2E=1.
+real-engine test runs only when SINGULARITY_ENGINE_E2E=1.
 """
 import json
 import os
@@ -104,8 +104,8 @@ class TestProbe(unittest.TestCase):
             os.unlink(path)
 
 
-@unittest.skipUnless(os.environ.get("CONTINUUM_ENGINE_E2E") == "1",
-                     "set CONTINUUM_ENGINE_E2E=1 to scan the embedded 180 MB engine")
+@unittest.skipUnless(os.environ.get("SINGULARITY_ENGINE_E2E") == "1",
+                     "set SINGULARITY_ENGINE_E2E=1 to scan the embedded 180 MB engine")
 class TestRealEngine(unittest.TestCase):
 
     def test_embedded_engine_is_aarch64_and_patched(self):

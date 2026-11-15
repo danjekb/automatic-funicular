@@ -1,4 +1,4 @@
-# Releasing Continuum
+# Releasing Singularity
 
 The in-app updater reads **this repository's** latest GitHub Release, so the release
 format is part of the app's contract.
@@ -9,7 +9,7 @@ format is part of the app's contract.
 | :--- | :--- |
 | Release | the repository's latest non-draft release |
 | Tag | `v<version>`, matching `APP_VERSION_NAME` in `config/app.env` |
-| APK asset | `continuum.apk` |
+| APK asset | `singularity.apk` |
 | Checksums asset | `SHA256SUMS.txt` (`sha256sum` format, one line per asset) |
 | Notes | `RELEASE_NOTES.md` is used as the release body and shown in the app |
 
@@ -23,10 +23,10 @@ Add these repository secrets (Settings → Secrets and variables → Actions):
 
 | Secret | Content |
 | :--- | :--- |
-| `CONTINUUM_KEYSTORE_BASE64` | `base64 -w0 keys/continuum-release.jks` |
-| `CONTINUUM_KEYSTORE_PASSWORD` | keystore password |
-| `CONTINUUM_KEY_ALIAS` | key alias (default `continuum`) |
-| `CONTINUUM_KEY_PASSWORD` | key password |
+| `SINGULARITY_KEYSTORE_BASE64` | `base64 -w0 keys/singularity-release.jks` |
+| `SINGULARITY_KEYSTORE_PASSWORD` | keystore password |
+| `SINGULARITY_KEY_ALIAS` | key alias (default `singularity`) |
+| `SINGULARITY_KEY_PASSWORD` | key password |
 
 Never commit these values. Release builds **fail** when the keystore secret is
 missing, so a release can never silently fall back to a debug key.
@@ -37,7 +37,7 @@ missing, so a release can never silently fall back to a debug key.
    (numeric, monotonically increasing — Android refuses to downgrade).
 2. Update `RELEASE_NOTES.md` with what changed.
 3. Run the suites locally: `bash test_all_modules.sh` and `bash web/tests/selftest.sh`.
-4. `bash build.sh` and `bash tools/verify_apk.sh dist/continuum.apk`.
+4. `bash build.sh` and `bash tools/verify_apk.sh dist/singularity.apk`.
 5. Commit, tag, push:
 
    ```bash
@@ -46,7 +46,7 @@ missing, so a release can never silently fall back to a debug key.
    git push origin main --follow-tags
    ```
 
-6. The `Build Continuum APK` workflow runs tests, builds, verifies the package id,
+6. The `Build Singularity APK` workflow runs tests, builds, verifies the package id,
    version, non-debuggable flag and the AArch64 engine, checks tag vs app version,
    writes `SHA256SUMS.txt` and publishes the release.
 

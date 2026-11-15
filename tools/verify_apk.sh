@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# verify_apk.sh - fail the build unless the APK is the Continuum fork for ARM64.
+# verify_apk.sh - fail the build unless the APK is the Singularity fork for ARM64.
 #
 # Checks:
 #   1. package id and version from the compiled manifest;
@@ -8,8 +8,8 @@
 #   4. no leftover upstream package id in the manifest.
 set -euo pipefail
 
-APK="${1:-dist/continuum.apk}"
-EXPECTED_PKG="dev.continuum.antigravity"
+APK="${1:-dist/singularity.apk}"
+EXPECTED_PKG="dev.singularity.antigravity"
 
 if [ ! -f "$APK" ]; then
     echo "[FATAL] APK not found: $APK" >&2
@@ -99,4 +99,4 @@ if command -v apksigner >/dev/null 2>&1; then
     apksigner verify --print-certs "$APK" | head -5
 fi
 
-echo "[OK] $APK looks like a Continuum ARM64 release"
+echo "[OK] $APK looks like a Singularity ARM64 release"

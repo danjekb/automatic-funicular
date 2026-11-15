@@ -1,7 +1,7 @@
-# Antigravity Android Agent Rules & Environment Guidelines
+# Singularity Android Agent Rules & Environment Guidelines
 
 > [!NOTE]
-> This rule is automatically loaded into every conversation in Antigravity for Android (AGY v2).
+> This rule is automatically loaded into every conversation in Singularity for Android.
 > It defines the operating environment, execution rules, package management, elevated permissions, and development standards.
 
 ---
@@ -9,10 +9,10 @@
 ## 1. Platform & Environment Identity
 
 - **Platform:** Native Android (Linux kernel 6.1+, ARM64 / `aarch64` architecture, **ARMv8.0-A+ baseline** with ARMv8.0 LSE emulation and native ARMv8.1-A+ LSE atomics).
-- **Application Context:** Runs directly inside the Antigravity (`dev.continuum.antigravity`) sandbox.
+- **Application Context:** Runs directly inside the Singularity (`dev.singularity.antigravity`) sandbox.
 - **Key Filesystem Paths:**
-  - Application Root (`$HOME`): `/data/user/0/dev.continuum.antigravity/files` (or app-private `files/` directory).
-  - Linux Userspace Prefix (`$PREFIX`): `$HOME/usr` (`/data/user/0/dev.continuum.antigravity/files/usr`).
+  - Application Root (`$HOME`): `/data/user/0/dev.singularity.antigravity/files` (or app-private `files/` directory).
+  - Linux Userspace Prefix (`$PREFIX`): `$HOME/usr` (`/data/user/0/dev.singularity.antigravity/files/usr`).
   - Binary Directory: `$PREFIX/bin`.
   - Runtime Internals: `$HOME/runtime/bin`.
   - External / Shared Storage: `/storage/emulated/0` (Projects typically reside in `/storage/emulated/0/Documents/`).
@@ -24,7 +24,7 @@
 ## 2. Terminal Execution Rules
 
 - **Pre-configured Environment (NO REDUNDANT EXPORTS):**
-  Antigravity pre-configures `$PATH` (`$PREFIX/bin:/system/bin`), `$HOME`, and `$PREFIX` for every shell command.
+  Singularity pre-configures `$PATH` (`$PREFIX/bin:/system/bin`), `$HOME`, and `$PREFIX` for every shell command.
   **DO NOT** prepend `export PATH=...` or `export HOME=...` before commands. Execute binaries (`python`, `git`, `pkg`, `bash`, `agy-daemon`) directly.
 - **No Bubblewrap / Desktop Sandboxing:**
   Standard desktop Linux bubblewrap (`bwrap`) is **not supported** by the Android kernel and SELinux. Never attempt to invoke `bwrap` or run commands wrapped in desktop sandboxes. All shell commands execute directly within the native userspace shell.
@@ -114,7 +114,7 @@ The agent has native access to Shizuku's elevated ADB shell (`uid=2000(shell)`):
 ## 5. Development & Server Guidelines
 
 - **Port Binding:** Local development servers (Vite, Next.js, Express, FastAPI) MUST bind to `localhost` or `127.0.0.1`.
-- **Reserved Ports:** Ports `45167` (release), `45168` (dev), `45170` (gateway release), `45171` (gateway dev), as well as upstream `45157-45161` and model proxy `50998` are reserved for Continuum core webview/API. Never bind dev servers to these ports.
+- **Reserved Ports:** Ports `45167` (release), `45168` (dev), `45170` (gateway release), `45171` (gateway dev), as well as upstream `45157-45161` and model proxy `50998` are reserved for Singularity core webview/API. Never bind dev servers to these ports.
 - **Safe Dev Ports:** `3000`, `5173`, `8000`, `8080`.
 - **Native Compilation:** When compiling native C/C++/Rust code, target `-march=armv8-a` baseline (ARMv8.0-A minimum, with runtime LSE emulation or native atomics).
 
@@ -122,7 +122,7 @@ The agent has native access to Shizuku's elevated ADB shell (`uid=2000(shell)`):
 
 ## 6. Background Daemon & AI Task Manager (`agy-daemon`)
 
-Antigravity includes an ultra-lightweight background scheduler, watcher, and AI task manager:
+Singularity includes an ultra-lightweight background scheduler, watcher, and AI task manager:
 - **Footprint:** <10MB RAM, 0.0% CPU idle.
 - **Persistence:** Runs alongside `CoreServerService` under Android Foreground Service Partial WakeLock (executes even with screen off or locked).
 

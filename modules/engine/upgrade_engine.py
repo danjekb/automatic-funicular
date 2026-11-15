@@ -54,7 +54,7 @@ def sha256(path: str) -> str:
 
 
 def build_report(archive: str) -> dict:
-    tmp = tempfile.mkdtemp(prefix="continuum_upgrade_")
+    tmp = tempfile.mkdtemp(prefix="singularity_upgrade_")
     staged = os.path.join(tmp, "language_server")
     try:
         extractor.extract_core(archive, staged)
@@ -95,7 +95,7 @@ def build_report(archive: str) -> dict:
 
 def patched_hashes(archive: str) -> dict:
     """Hashes of the patched binary for both gate modes (used by prepare_runtime)."""
-    tmp = tempfile.mkdtemp(prefix="continuum_patch_")
+    tmp = tempfile.mkdtemp(prefix="singularity_patch_")
     staged = os.path.join(tmp, "language_server")
     try:
         extractor.extract_core(archive, staged)

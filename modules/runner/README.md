@@ -1,12 +1,12 @@
 # Runtime Launch and Lifecycle Management Module (`modules/runner`)
 
-> **Architectural Audit and Lifecycle Guide for the Antigravity Standalone Core Runtime on Android**
+> **Architectural Audit and Lifecycle Guide for the Singularity Standalone Core Runtime on Android**
 
 ---
 
 ## 1. Architecture and File Organization
 
-The `modules/runner` module acts as the orchestrator for building, preparing, launching, health monitoring, and gracefully terminating the Antigravity v2 standalone runtime on Android devices (ARM64 / `aarch64` architecture).
+The `modules/runner` module acts as the orchestrator for building, preparing, launching, health monitoring, and gracefully terminating the Singularity standalone runtime on Android devices (ARM64 / `aarch64` architecture).
 
 ```
 modules/runner/
@@ -32,7 +32,7 @@ modules/runner/
 
 ## 2. Runtime Lifecycle
 
-The Antigravity Core process lifecycle consists of 6 sequential phases:
+The Singularity Core process lifecycle consists of 6 sequential phases:
 
 ```mermaid
 stateDiagram-v2
@@ -182,7 +182,7 @@ During systematic auditing and refactoring of `modules/runner`, all identified d
 - **Before:** Attempting to bind to an occupied port caused hidden failures and masked error state.
 - **Implemented:**
   1. Integrated port availability checks via socket connection `/dev/tcp/127.0.0.1/$PORT`.
-  2. Added strict protection for reserved ports: ports 45157 and 45158 are reserved for the main Antigravity IDE runtime; standalone core startup on these ports is rejected with an error.
+  2. Added strict protection for reserved ports: ports 45167 and 45168 (45157/45158 upstream) are reserved for the main Singularity IDE runtime; standalone core startup on these ports is rejected with an error.
   3. If port 45159 is occupied, the script first attempts a graceful shutdown of previous instances via `stop_core.sh`, then scans `/proc` for zombie standalone core processes (`antigravity-app-standalone` + `language_server` + `$PORT`) and terminates them.
   4. If the port is not released within 2 seconds, startup terminates with an informative error.
 
@@ -203,7 +203,7 @@ During systematic auditing and refactoring of `modules/runner`, all identified d
 
 ### Issue 8: Dynamic APP_ID Resolution (Resolved)
 - **Files:** `start_core.sh`, `stop_core.sh`, `test_e2e.sh`
-- **Implemented:** `APP_ID` (`dev.continuum.antigravity` vs `dev.continuum.antigravity.dev`) is resolved dynamically via `AGY_APPLICATION_ID`, regex matching against `$HOME` (`/data/user/0/<app_id>`), or filesystem existence checks.
+- **Implemented:** `APP_ID` (`dev.singularity.antigravity` vs `dev.singularity.antigravity.dev`) is resolved dynamically via `AGY_APPLICATION_ID`, regex matching against `$HOME` (`/data/user/0/<app_id>`), or filesystem existence checks.
 
 ---
 
@@ -242,19 +242,19 @@ The current implementation of `modules/runner` relies on a robust model coordina
 # 1. Run runtime end-to-end (E2E) integration test:
 bash modules/runner/test_e2e.sh
 
-# 2. Run master test suite across all Antigravity v2 modules:
+# 2. Run master test suite across all Singularity modules:
 bash test_all_modules.sh
 
 # 3. Manual isolated component execution:
 # Prepare runtime:
-python3 modules/runner/prepare_runtime.py /data/user/0/dev.continuum.antigravity.dev/files/standalone_runtime
+python3 modules/runner/prepare_runtime.py /data/user/0/dev.singularity.antigravity.dev/files/standalone_runtime
 
 # Start core on specified port:
-bash modules/runner/start_core.sh /data/user/0/dev.continuum.antigravity.dev/files/standalone_runtime 45159
+bash modules/runner/start_core.sh /data/user/0/dev.singularity.antigravity.dev/files/standalone_runtime 45159
 
 # Check readiness (with 10-second timeout):
 python3 modules/runner/probe_server.py 45159 10
 
 # Graceful stop:
-bash modules/runner/stop_core.sh /data/user/0/dev.continuum.antigravity.dev/files/standalone_runtime
+bash modules/runner/stop_core.sh /data/user/0/dev.singularity.antigravity.dev/files/standalone_runtime
 ```

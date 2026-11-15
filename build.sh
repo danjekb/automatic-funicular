@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build.sh - Convenient root wrapper for Continuum APK builder.
+# build.sh - Convenient root wrapper for Singularity APK builder.
 # Usage:
 #   bash build.sh                 # Build standard release edition (dist/singularity.apk)
 #   bash build.sh --dev           # Build debuggable dev edition (dist/singularity-dev.apk)

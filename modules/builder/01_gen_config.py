@@ -51,11 +51,11 @@ def main():
     app_version_name = env.get("APP_VERSION_NAME", "3.0.0")
     app_version_code = env.get("APP_VERSION_CODE", "30")
     oauth_scheme = env.get("OAUTH_SCHEME", "antigravity")
-    app_name = env.get("APP_NAME_DEV", "Continuum Dev") if is_dev else env.get("APP_NAME", "Continuum")
+    app_name = env.get("APP_NAME_DEV", "Singularity Dev") if is_dev else env.get("APP_NAME", "Singularity")
     min_api = env.get("MIN_API", "24")
     target_sdk = env.get("TARGET_SDK", "28")
     update_repo = env.get("UPDATE_REPO", "")
-    update_asset = env.get("UPDATE_ASSET", "continuum.apk")
+    update_asset = env.get("UPDATE_ASSET", "singularity.apk")
     update_sums_asset = env.get("UPDATE_CHECKSUMS_ASSET", "SHA256SUMS.txt")
     is_debug = "true" if is_dev else "false"
 

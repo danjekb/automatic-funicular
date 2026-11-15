@@ -77,7 +77,7 @@ def read_version_spec(project_root: str = PROJECT_ROOT) -> dict:
 
 def extract_from_archive(archive: str) -> str:
     """Extract language_server from a .tar.gz into a temp dir; return its path."""
-    tmp = tempfile.mkdtemp(prefix="continuum_engine_")
+    tmp = tempfile.mkdtemp(prefix="singularity_engine_")
     with tarfile.open(archive, "r:gz") as tar:
         for member in tar.getmembers():
             if member.isfile() and os.path.basename(member.name) == "language_server":

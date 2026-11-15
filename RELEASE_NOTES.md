@@ -1,4 +1,4 @@
-## Continuum 3.2.0-alpha.1 — official Antigravity CLI + ACP foundation
+## Singularity 3.2.0-alpha.1 — official Antigravity CLI + ACP foundation
 
 **Pre-release.** This is an alpha: the ACP backend exists and is tested against the
 protocol, but it has not been run against Google's real CLI on a device, and the

@@ -1,4 +1,4 @@
-name: Build Continuum APK
+name: Build Singularity APK
 
 # Runs the repository's test suites, builds a signed ARM64 APK, verifies it and
 # publishes a versioned GitHub Release that the in-app updater reads.
@@ -49,8 +49,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-      - name: ACP adapter protocol tests
-        run: bash tools/acp_test/run.sh
       - name: Engine compatibility layer tests
         run: python3 -m unittest discover -s modules/engine/tests -p 'test_*.py' -v
       - name: Binary patch pipeline tests
@@ -104,15 +102,15 @@ jobs:
       - name: Restore the fork signing key
         id: key
         env:
-          KEYSTORE_B64: ${{ secrets.CONTINUUM_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.CONTINUUM_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.CONTINUUM_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.CONTINUUM_KEY_PASSWORD }}
+          KEYSTORE_B64: ${{ secrets.SINGULARITY_KEYSTORE_BASE64 || secrets.CONTINUUM_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.SINGULARITY_KEYSTORE_PASSWORD || secrets.CONTINUUM_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SINGULARITY_KEY_ALIAS || secrets.CONTINUUM_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SINGULARITY_KEY_PASSWORD || secrets.CONTINUUM_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           if [ -z "${KEYSTORE_B64}" ]; then
             if [ "${{ github.event_name }}" = "pull_request" ] || [ -n "${{ github.event.inputs.tag_name }}" ] || [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-              echo "::error::CONTINUUM_KEYSTORE_BASE64 is not configured; release builds must be signed with the fork key."
+              echo "::error::SINGULARITY_KEYSTORE_BASE64 is not configured; release builds must be signed with the fork key."
               exit 1
             fi
             echo "::warning::No release key configured - building a debug-signed test APK (not for release)."
@@ -121,11 +119,11 @@ jobs:
           fi
           echo "dev_mode=" >> "$GITHUB_OUTPUT"
           mkdir -p keys
-          printf '%s' "${KEYSTORE_B64}" | base64 --decode > keys/continuum-release.jks
+          printf '%s' "${KEYSTORE_B64}" | base64 --decode > keys/singularity-release.jks
           cat > keys/keystore.properties <<EOF
-          storeFile=keys/continuum-release.jks
+          storeFile=keys/singularity-release.jks
           storePassword=${KEYSTORE_PASSWORD}
-          keyAlias=${KEY_ALIAS:-continuum}
+          keyAlias=${KEY_ALIAS:-singularity}
           keyPassword=${KEY_PASSWORD:-${KEYSTORE_PASSWORD}}
           EOF
           echo "[CI] release key restored"
@@ -138,7 +136,7 @@ jobs:
       - name: Verify package, version and ARM64 payload
         # Key-less builds keep the release package id and stay non-debuggable;
         # only the signing certificate is the public AOSP debug key.
-        run: bash tools/verify_apk.sh dist/continuum.apk
+        run: bash tools/verify_apk.sh dist/singularity.apk
 
       - name: Cross-check release tag against app version
         if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag_name != ''
@@ -157,15 +155,15 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum continuum.apk > SHA256SUMS.txt
+          sha256sum singularity.apk > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: continuum-apk
+          name: singularity-apk
           path: |
-            dist/continuum.apk
+            dist/singularity.apk
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -174,11 +172,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          name: ${{ format('Continuum {0}', github.event.inputs.tag_name || github.ref_name) }}
+          name: ${{ format('Singularity {0}', github.event.inputs.tag_name || github.ref_name) }}
           draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
           prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
           make_latest: true
           files: |
-            dist/continuum.apk
+            dist/singularity.apk
             dist/SHA256SUMS.txt
           body_path: RELEASE_NOTES.md

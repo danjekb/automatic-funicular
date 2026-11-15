@@ -1,6 +1,6 @@
 # modules/engine — engine compatibility layer
 
-Continuum does not hardcode a model list. Everything the app shows about models
+Singularity does not hardcode a model list. Everything the app shows about models
 comes from the `language_server` binary that is actually embedded in the APK.
 
 ## Why this exists

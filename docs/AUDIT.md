@@ -1,4 +1,4 @@
-# Repository audit — Antigravity for Android
+# Repository audit — Antigravity for Android (Singularity Fork)
 
 Audit performed on `werdio325-png/antigravity-android` before any fork changes.
 Everything below is from the checked-out tree and the embedded binaries, not from

@@ -1,6 +1,6 @@
-# Antigravity v2 - Environment, Diagnostics & System Gateway Subsystem (`modules/env`)
+# Singularity - Environment, Diagnostics & System Gateway Subsystem (`modules/env`)
 
-> The **`env` module** is a foundational subsystem for system environment management, dynamic Android/Linux path resolution, hardware and network diagnostics (preflight/port checker), structured telemetry logging, command execution auditing, and inter-process communication with the Android System Gateway for Google Antigravity v2.
+> The **`env` module** is a foundational subsystem for system environment management, dynamic Android/Linux path resolution, hardware and network diagnostics (preflight/port checker), structured telemetry logging, command execution auditing, and inter-process communication with the Android System Gateway for Singularity.
 
 ---
 
@@ -136,12 +136,12 @@ Defines base variables, `PATH` search order, and library directories:
 ## 4. Context and Dynamic Path Resolver (`context/`)
 
 ### 4.1. `path_resolver.py`
-Eliminates hardcoded package names (`dev.continuum.antigravity` vs `dev.continuum.antigravity.dev` vs custom builds):
+Eliminates hardcoded package names (`dev.singularity.antigravity` vs `dev.singularity.antigravity.dev` vs custom builds):
 - `get_application_id() -> str`: Determines the package identifier by order of precedence:
   1. `AGY_APPLICATION_ID` environment variable
   2. `APPLICATION_ID` environment variable
-  3. `DEV_MODE == "1"` flag (returns `dev.continuum.antigravity.dev`)
-  4. Default fallback: `dev.continuum.antigravity`
+  3. `DEV_MODE == "1"` flag (returns `dev.singularity.antigravity.dev`)
+  4. Default fallback: `dev.singularity.antigravity`
 - `load_paths(custom_spec=None, app_id=None) -> Dict[str, str]`: Loads and interpolates paths from `paths.json`, ensuring absolute paths via `os.path.abspath(os.path.expanduser(...))`.
 - `resolve_subpath(key: str, rel_path: str, custom_spec=None, app_id=None) -> str`: Safely joins subpaths. To prevent discarding the root path when a leading slash is passed (`/bin/tool`), `rel_path.lstrip("/")` is applied.
 
@@ -211,8 +211,8 @@ Enables inter-process communication between Python scripts, background tasks, an
 ### 7.1. IPC Client (`bridge/client.py`)
 - `resolve_gateway_url() -> str`:
   1. Checks the `AGY_GATEWAY_URL` environment variable.
-  2. Searches for the dynamic port file `gateway.port` in `$HOME/logs/gateway.port`, `app_root/logs/gateway.port`, and standard `dev.continuum.antigravity.dev` / `dev.continuum.antigravity` directories.
-  3. If the file is not found, selects a default port: `45161` for `DEV_MODE=1` / `dev.continuum.antigravity.dev`, or `45160` for production.
+  2. Searches for the dynamic port file `gateway.port` in `$HOME/logs/gateway.port`, `app_root/logs/gateway.port`, and standard `dev.singularity.antigravity.dev` / `dev.singularity.antigravity` directories.
+  3. If the file is not found, selects a default port: `45161` for `DEV_MODE=1` / `dev.singularity.antigravity.dev`, or `45160` for production.
 - `send_command(command: str, payload: dict = None, gateway_url: str = None) -> dict`:
   - Dispatches an HTTP POST request with a JSON envelope `{command, payload}` to the `/gateway` endpoint.
   - Automatic failover: retries connection on the alternate port (`45160` <-> `45161`) if the primary port is unreachable.
@@ -235,7 +235,7 @@ A utility and library for transparent shell command execution with detailed prof
 
 ```bash
 # Execute command with telemetry:
-python3 modules/env/cmd/runner.py run "echo 'Hello Antigravity'"
+python3 modules/env/cmd/runner.py run "echo 'Hello Singularity'"
 
 # Direct invocation:
 python3 modules/env/cmd/runner.py pkg list
@@ -280,7 +280,7 @@ python3 modules/env/cli/agy_system.py clipboard get
 
 ### 9.2. Telemetry and Log Inspector (`cli/agy_logs.py`)
 
-Inspection tool for analyzing Antigravity core runtime status:
+Inspection tool for analyzing Singularity core runtime status:
 
 ```bash
 # 1. View recent general log lines:
@@ -327,8 +327,8 @@ bash modules/env/tests/run_all.sh
 During an in-depth source code audit of the `modules/env` subsystem, critical architectural defects, Android path errors, and typing issues were identified and resolved:
 
 ### 11.1. Critical Path Hardcoding in `preflight.py`
-- **Issue**: In `run_preflight`, the default parameter value was hardcoded: `app_root: str = "/data/user/0/dev.continuum.antigravity/files"`.
-- **Impact**: In debug builds (`dev.continuum.antigravity.dev`) or custom packages, invoking `run_preflight()` without arguments checked a non-existent production package directory (`dev.continuum.antigravity`). Consequently, `os.path.exists()` returned `False`, `free_mb = 0`, and preflight unconditionally reported `ok: False`, blocking core startup.
+- **Issue**: In `run_preflight`, the default parameter value was hardcoded: `app_root: str = "/data/user/0/dev.singularity.antigravity/files"`.
+- **Impact**: In debug builds (`dev.singularity.antigravity.dev`) or custom packages, invoking `run_preflight()` without arguments checked a non-existent production package directory (`dev.singularity.antigravity`). Consequently, `os.path.exists()` returned `False`, `free_mb = 0`, and preflight unconditionally reported `ok: False`, blocking core startup.
 - **Fix**: Changed the parameter to `app_root: Optional[str] = None`. Added cascading dynamic resolution: `path_resolver.load_paths()["app_root"]` -> `$HOME` -> fallback.
 
 ### 11.2. Typing Error `NameError: Optional` in `bridge/commands.py`
@@ -337,18 +337,18 @@ During an in-depth source code audit of the `modules/env` subsystem, critical ar
 - **Fix**: Added explicit imports `from typing import Dict, Any, Optional`, and implemented the missing methods `clipboard_get()`, `cancel_notify()`, and `system_info()`.
 
 ### 11.3. Suppressed Logging and Hardcoded Paths in `cmd/runner.py`
-- **Issue**: The `LOG_DIR` path was hardcoded to `/data/user/0/dev.continuum.antigravity/files/logs`.
-- **Impact**: In a `dev.continuum.antigravity.dev` environment, directory creation or writing to `commands.jsonl` failed with `PermissionDenied`, which was silently swallowed by `except Exception: pass`. All commands executed via `runner.py` lost audit history.
+- **Issue**: The `LOG_DIR` path was hardcoded to `/data/user/0/dev.singularity.antigravity/files/logs`.
+- **Impact**: In a `dev.singularity.antigravity.dev` environment, directory creation or writing to `commands.jsonl` failed with `PermissionDenied`, which was silently swallowed by `except Exception: pass`. All commands executed via `runner.py` lost audit history.
 - **Fix**: Implemented `_resolve_log_dir()`, giving priority to `$HOME/logs` and `path_resolver`.
 
 ### 11.4. Unreachable Logs and Crash Dumps in `cli/agy_logs.py`
-- **Issue**: File paths for `commands.jsonl`, `logs/core.log`, and `logs/crashes` were hardcoded to `dev.continuum.antigravity`. Additionally, `read_file_fallback` checked `~/.gemini/logs/core.log`, whereas the real file is created in `$HOME/logs/core.log`.
+- **Issue**: File paths for `commands.jsonl`, `logs/core.log`, and `logs/crashes` were hardcoded to `dev.singularity.antigravity`. Additionally, `read_file_fallback` checked `~/.gemini/logs/core.log`, whereas the real file is created in `$HOME/logs/core.log`.
 - **Impact**: When the Android Gateway was offline, `agy_logs.py` could not find any log files and rendered empty output.
 - **Fix**: Introduced `_find_commands_log()`, unified paths with the dynamic resolver, and added `$HOME/logs/core.log` to the candidate list for `core.log`.
 
 ### 11.5. Duplicated Gateway Port Discovery Logic
 - **Issue**: `resolve_gateway_url()` in `bridge/client.py` and `get_gateway_base()` in `cli/agy_logs.py` contained duplicate code, and both functions checked only static paths for `gateway.port`.
-- **Fix**: `agy_logs.py` now imports the centralized method from `bridge.client`, and the resolver itself checks `$HOME/logs/gateway.port` as well as the environment flag `AGY_APPLICATION_ID == "dev.continuum.antigravity.dev"`.
+- **Fix**: `agy_logs.py` now imports the centralized method from `bridge.client`, and the resolver itself checks `$HOME/logs/gateway.port` as well as the environment flag `AGY_APPLICATION_ID == "dev.singularity.antigravity.dev"`.
 
 ### 11.6. Missing `$PREFIX` and `$GIT_CONFIG_NOSYSTEM` in `env_builder.py`
 - **Issue**: `PREFIX` (`/data/user/0/{package}/files/usr`) is a key environment variable in Android userland (Termux / AGY). Despite `"prefix"` existing in `paths.json`, `env_builder.py` failed to export `PREFIX`. The `GIT_CONFIG_NOSYSTEM=1` flag was also omitted.

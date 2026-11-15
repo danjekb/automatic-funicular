@@ -11,22 +11,23 @@
 set -euo pipefail
 
 ALIGNED_APK="${1:-$BUILD_DIR/aligned.apk}"
-OUT_APK="${2:-$DIST_DIR/continuum.apk}"
+OUT_APK="${2:-$DIST_DIR/singularity.apk}"
 
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 KEYS_DIR="$PROJECT_ROOT/keys"
-DEFAULT_RELEASE_KS="$KEYS_DIR/continuum-release.jks"
+DEFAULT_RELEASE_KS="$KEYS_DIR/singularity-release.jks"
+[ ! -f "$DEFAULT_RELEASE_KS" ] && [ -f "$KEYS_DIR/continuum-release.jks" ] && DEFAULT_RELEASE_KS="$KEYS_DIR/continuum-release.jks"
 PROPS="$KEYS_DIR/keystore.properties"
 
-KEYSTORE="${CONTINUUM_KEYSTORE:-${AGY_RELEASE_KEYSTORE:-}}"
-KEY_ALIAS="${CONTINUUM_KEY_ALIAS:-${AGY_RELEASE_KEY_ALIAS:-}}"
-KEY_PASS="${CONTINUUM_KEY_PASS:-${AGY_RELEASE_KEY_PASS:-}}"
-STORE_PASS="${CONTINUUM_STORE_PASS:-${AGY_RELEASE_STORE_PASS:-}}"
+KEYSTORE="${SINGULARITY_KEYSTORE:-${CONTINUUM_KEYSTORE:-${AGY_RELEASE_KEYSTORE:-}}}"
+KEY_ALIAS="${SINGULARITY_KEY_ALIAS:-${CONTINUUM_KEY_ALIAS:-${AGY_RELEASE_KEY_ALIAS:-}}}"
+KEY_PASS="${SINGULARITY_KEY_PASS:-${CONTINUUM_KEY_PASS:-${AGY_RELEASE_KEY_PASS:-}}}"
+STORE_PASS="${SINGULARITY_STORE_PASS:-${CONTINUUM_STORE_PASS:-${AGY_RELEASE_STORE_PASS:-}}}"
 SOURCE="environment"
 
 if [ -z "$KEYSTORE" ] && [ -f "$DEFAULT_RELEASE_KS" ]; then
     KEYSTORE="$DEFAULT_RELEASE_KS"
-    KEY_ALIAS="${KEY_ALIAS:-continuum}"
+    KEY_ALIAS="${KEY_ALIAS:-singularity}"
     SOURCE="$DEFAULT_RELEASE_KS"
     if [ -f "$PROPS" ]; then
         [ -z "$KEY_ALIAS" ] && KEY_ALIAS="$(sed -n 's/^keyAlias=//p' "$PROPS" | head -n1)"

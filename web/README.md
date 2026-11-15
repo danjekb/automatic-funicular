@@ -1,4 +1,4 @@
-# Antigravity Web Interface: `web/`
+# Singularity Web Interface: `web/`
 
 > Single-page application (React-based SPA) running within an isolated Android WebView and communicating with the local Go/C++ core (`language_server`) via loopback HTTPS and a native Java bridge (`AndroidBridge`).
 
@@ -6,7 +6,7 @@
 
 ## 1. Architectural Overview
 
-The Antigravity web layer is a specialized UI frontend packaged within application assets and optimized for Android touchscreen environments (ARM64). Rather than loading via the classic `file:///android_asset/` scheme (which blocks modern browser features and ConnectRPC operations), the interface is mounted in `WebView` via `loadDataWithBaseURL` targeting the trusted loopback server origin `https://127.0.0.1:<port>/`.
+The Singularity web layer is a specialized UI frontend packaged within application assets and optimized for Android touchscreen environments (ARM64). Rather than loading via the classic `file:///android_asset/` scheme (which blocks modern browser features and ConnectRPC operations), the interface is mounted in `WebView` via `loadDataWithBaseURL` targeting the trusted loopback server origin `https://127.0.0.1:<port>/`.
 
 ### Architecture Interaction Sequence Diagram
 

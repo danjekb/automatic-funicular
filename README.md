@@ -1,6 +1,12 @@
 <div align="center">
 
-# Continuum
+  <p>
+    <b>English</b> &nbsp;&bull;&nbsp; <a href="README.ru.md">Русский</a>
+  </p>
+
+  <br/>
+
+# Singularity
 
 **An independent, maintained Android fork of [Antigravity for Android](https://github.com/werdio325-png/antigravity-android).**
 
@@ -14,14 +20,14 @@ reach.
 
 ## What this fork is
 
-Continuum is a fork, not a rebrand of a download. It keeps the whole upstream
+Singularity is a fork, not a rebrand of a download. It keeps the whole upstream
 runtime (native Bionic engine, glibc loader, shims, WebView UI, OAuth, terminal,
 workspaces) and changes only the things a fork must own:
 
-| Area | Upstream | Continuum |
+| Area | Upstream | Singularity |
 | :--- | :--- | :--- |
-| App name | Antigravity for Android | **Continuum** (`Continuum Dev` for dev builds) |
-| Application id | `com.agy` | `dev.continuum.antigravity` (`.dev` for dev builds) |
+| App name | Antigravity for Android | **Singularity** (`Singularity Dev` for dev builds) |
+| Application id | `com.agy` | `dev.singularity.antigravity` (`.dev` for dev builds) |
 | Engine port | 45157 | **45167 / 45168** so both apps can run side by side |
 | Gateway port | 45160 | **45170 / 45171** |
 | Signing | shared debug key | **separate release key**, fail-closed in CI |
@@ -30,12 +36,12 @@ workspaces) and changes only the things a fork must own:
 | Updates | manual APK download | **in-app updater** from this repo's GitHub Releases |
 | Upstream tracking | manual | scheduled workflow that opens reviewable PRs |
 
-Installing Continuum does not touch an existing Antigravity installation: different
+Installing Singularity does not touch an existing Antigravity installation: different
 package id, different ports, different signing key, separate data directory.
 
 ## Model availability — what actually happens
 
-Continuum never invents a model and never pretends one is available.
+Singularity never invents a model and never pretends one is available.
 
 `modules/engine` reads the model catalogue **out of the embedded engine binary**
 at build time and ships it as `assets/runtime/engine_info.json`. The UI then:
@@ -66,8 +72,8 @@ projects, tokens) is preserved because the package id and signing key stay stabl
 
 ```bash
 bash tools/gen_keys.sh   # once: creates the fork release key (git-ignored)
-bash build.sh            # -> dist/continuum.apk
-bash tools/verify_apk.sh dist/continuum.apk
+bash build.sh            # -> dist/singularity.apk
+bash tools/verify_apk.sh dist/singularity.apk
 ```
 
 Requirements, toolchain layout and dev builds: [docs/BUILDING.md](docs/BUILDING.md).
@@ -84,7 +90,7 @@ and what remains.
 
 ## License and attribution
 
-Continuum is distributed under the **Apache License 2.0**, the same license as the
+Singularity is distributed under the **Apache License 2.0**, the same license as the
 upstream project. Upstream copyright and attribution are retained; see
 [NOTICE](NOTICE) and [LICENSE](LICENSE). The embedded `language_server` binary and
 the Antigravity web UI remain Google's; this fork only patches and packages them

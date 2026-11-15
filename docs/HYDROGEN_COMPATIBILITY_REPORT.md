@@ -70,7 +70,7 @@ fully functional.
 ## What cannot be claimed
 
 * That Hydrogen High works. No turn was executed.
-* That the Android build of `agy` runs inside Continuum. It is published and
+* That the Android build of `agy` runs inside Singularity. It is published and
   provisioned by verified download only; execution is untested here.
 * Any Jio entitlement outcome.
 

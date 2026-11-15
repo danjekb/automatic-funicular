@@ -1,6 +1,6 @@
-# Antigravity Multi-Model Gateway & Proxy Integration
+# Singularity Multi-Model Gateway & Proxy Integration
 
-Ten moduł integruje lekki, lokalny serwer proxy (`model_proxy`) w aplikacji Antigravity na Androida, oparty o architekturę z projektu [antigravity-add-model](https://github.com/vahapogut/antigravity-add-model).
+Ten moduł integruje lekki, lokalny serwer proxy (`model_proxy`) w aplikacji Singularity na Androida, oparty o architekturę z projektu [antigravity-add-model](https://github.com/vahapogut/antigravity-add-model).
 
 ---
 
@@ -8,7 +8,7 @@ Ten moduł integruje lekki, lokalny serwer proxy (`model_proxy`) w aplikacji Ant
 
 ```
 +-------------------------------------------------------------------+
-|                        Antigravity Webview                        |
+|                        Singularity Webview                        |
 +-------------------------------------------------------------------+
                                   |
                                   | 1. Intercept LanguageServer
@@ -35,7 +35,7 @@ Ten moduł integruje lekki, lokalny serwer proxy (`model_proxy`) w aplikacji Ant
 ```
 
 1. **Cykl życia w Androidzie (`CoreServerService.java`):**
-   - Po uruchomieniu głównego serwera Antigravity, `CoreServerService` w osobnym wątku uruchamia `node entry.js --port 50998`.
+   - Po uruchomieniu głównego serwera Singularity, `CoreServerService` w osobnym wątku uruchamia `node entry.js --port 50998`.
    - Zapisuje stan w `$HOME/.gemini/antigravity-app/.ide-proxy/state.json`.
    - Przy niszczeniu serwisu wysyła `SIGTERM (15)` do procesu proxy.
 
@@ -81,6 +81,6 @@ agy-models restart
 
 - `env/overlay/lib/model_proxy/` – silnik proxy uruchamiany przez Node.js, zawierający adapter `electron-log` pod Androida.
 - `env/overlay/bin/agy-models` – CLI do konfiguracji `custom_models.json`.
-- `app/src/main/java/dev/continuum/antigravity/core/CoreServerService.java` – automatyczny start/stop serwera proxy wraz z aplikacją.
+- `app/src/main/java/dev/singularity/antigravity/core/CoreServerService.java` – automatyczny start/stop serwera proxy wraz z aplikacją.
 - `web/src/core/fetch-rewrite.js` – hook przekierowujący `LanguageServerService/SetCloudCodeURL`.
 - `integrate_gateway.sh` – skrypt automatyzujący ponowną synchronizację lub aktualizację proxy z repozytorium upstream.

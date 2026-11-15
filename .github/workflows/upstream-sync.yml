@@ -81,8 +81,8 @@ jobs:
           set -euo pipefail
           BRANCH="upstream-sync/$(date -u +%Y%m%d)-${{ github.run_number }}"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-          git config user.name "continuum-upstream-bot"
-          git config user.email "continuum-upstream-bot@users.noreply.github.com"
+          git config user.name "singularity-upstream-bot"
+          git config user.email "singularity-upstream-bot@users.noreply.github.com"
           git checkout -b "$BRANCH"
           if git merge --no-edit --no-ff "${{ steps.fetch.outputs.base }}"; then
             echo "clean=true" >> "$GITHUB_OUTPUT"
@@ -131,8 +131,8 @@ jobs:
           bash modules/io/tests/run_all.sh
           bash web/tests/selftest.sh
           # The fork's identity must survive an upstream merge.
-          grep -q "^PKG=dev.continuum.antigravity" config/app.env
-          grep -q "AndroidUpdate" app/src/main/java/dev/continuum/antigravity/ui/webview/WebViewHost.java
+          grep -q "^PKG=dev.singularity.antigravity" config/app.env
+          grep -q "AndroidUpdate" app/src/main/java/dev/singularity/antigravity/ui/webview/WebViewHost.java
 
       - name: Push branch and open a draft PR
         if: steps.merge.outputs.clean == 'true'

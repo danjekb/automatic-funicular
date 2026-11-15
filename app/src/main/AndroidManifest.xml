@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="dev.continuum.antigravity"
+    package="dev.singularity.antigravity"
     android:versionCode="30"
     android:versionName="3.0.0">
 
@@ -28,11 +28,6 @@
             <action android:name="android.intent.action.OPEN_DOCUMENT" />
             <data android:mimeType="*/*" />
         </intent>
-        <!-- Package installer (in-app updater hands the verified APK to it). -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:mimeType="application/vnd.android.package-archive" />
-        </intent>
     </queries>
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -45,14 +40,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <!-- The updater never installs silently: it always hands the verified APK
-         to Android's package installer, which shows the system consent UI. -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <permission
-        android:name="dev.continuum.antigravity.permission.INTERNAL_BROADCAST"
+        android:name="dev.singularity.antigravity.permission.INTERNAL_BROADCAST"
         android:protectionLevel="signature" />
-    <uses-permission android:name="dev.continuum.antigravity.permission.INTERNAL_BROADCAST" />
+    <uses-permission android:name="dev.singularity.antigravity.permission.INTERNAL_BROADCAST" />
 
     <application
         android:allowBackup="false"
@@ -78,7 +69,7 @@
           in-app theme instead of the system day/night.
         -->
         <activity
-            android:name="dev.continuum.antigravity.ui.MainActivity"
+            android:name="dev.singularity.antigravity.ui.MainActivity"
             android:exported="false"
             android:theme="@style/SplashTheme"
             android:launchMode="singleTask"
@@ -90,7 +81,7 @@
              original login flow runs unmodified. -->
 
         <activity
-            android:name="dev.continuum.antigravity.ui.launcher.LauncherDarkActivity"
+            android:name="dev.singularity.antigravity.ui.launcher.LauncherDarkActivity"
             android:enabled="true"
             android:exported="true"
             android:theme="@style/SplashThemeDark"
@@ -107,7 +98,7 @@
         </activity>
 
         <activity
-            android:name="dev.continuum.antigravity.ui.launcher.LauncherLightActivity"
+            android:name="dev.singularity.antigravity.ui.launcher.LauncherLightActivity"
             android:enabled="false"
             android:exported="true"
             android:theme="@style/SplashThemeLight"
@@ -123,21 +114,13 @@
             </intent-filter>
         </activity>
 
-        <receiver
-            android:name="dev.continuum.antigravity.runtime.TorchReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="dev.continuum.antigravity.ACTION_TORCH" />
-            </intent-filter>
-        </receiver>
-
         <service
-            android:name="dev.continuum.antigravity.core.CoreServerService"
+            android:name="dev.singularity.antigravity.core.CoreServerService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
         <provider
-            android:name="dev.continuum.antigravity.util.AppFileProvider"
+            android:name="dev.singularity.antigravity.util.AppFileProvider"
             android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true" />

@@ -1,6 +1,6 @@
-# Antigravity Android Layer Architecture (`app/`)
+# Singularity Android Layer Architecture (`app/`)
 
-The `app/` module serves as the Native Host Shell for the **Antigravity v2.4+ environment (Android ARM64, Bionic + Glibc userspace, targetSdk 28 / minSdk 24)**. 
+The `app/` module serves as the Native Host Shell for the **Singularity for Android environment (Android ARM64, Bionic + Glibc userspace, targetSdk 28 / minSdk 24)**. 
 
 The host is responsible for launching and supervising the Go-based `language_server` core, providing a secure Chromium WebView-based UI container, hosting a local HTTP System Gateway Server, and integrating directly with the Android platform (notifications, power management, clipboard, storage, and Shizuku/rish).
 
@@ -12,7 +12,7 @@ The host is responsible for launching and supervising the Go-based `language_ser
 graph TD
     subgraph UI_Layer ["Presentation Layer (UI Layer)"]
         LDA["LauncherDarkActivity / LauncherLightActivity"] --> MA["MainActivity"]
-        MA --> SC["SplashController (NativeSplashDotsView / Lazy WebView)"]
+        MA --> SC["SplashController (SplashLoadingHtml / Fast Skeleton)"]
         MA --> WVH["WebViewHost (Chromium WebView)"]
         WVH --> AWVC["AgyWebViewClient (OAuth & Asset Interceptor)"]
         WVH --> AWCC["AgyWebChromeClient (Console, Files, Popups)"]
@@ -67,7 +67,7 @@ graph TD
 
 ## 2. Key Subsystems
 
-### 2.1. Background Services and Core Management (`dev.continuum.antigravity.core`)
+### 2.1. Background Services and Core Management (`dev.singularity.antigravity.core`)
 
 The system core (`language_server`) is compiled for Linux/Glibc and executed in the Android environment via a custom loader (`libloader.so`) with instruction-level LSE emulation (`liblse_compat.so`).
 
@@ -77,7 +77,7 @@ The system core (`language_server`) is compiled for Linux/Glibc and executed in 
   - Manages the lifecycle of the core supervisor, HTTP Gateway, and the `agy-daemon` background task engine.
 - **`CoreLauncher`**:
   - Orchestrates Phase 1 setup (unpacking and validating the core) and native process execution.
-  - Incorporates `killOrphanCoreProcesses()`: scans `/proc` and forcefully terminates (`SIGKILL`) any lingering orphan `language_server` processes from previous sessions prior to startup, eliminating `EADDRINUSE` (`listen: address already in use`) errors on fixed loopback ports 45157/45158.
+  - Incorporates `killOrphanCoreProcesses()`: scans `/proc` and forcefully terminates (`SIGKILL`) any lingering orphan `language_server` processes from previous sessions prior to startup, eliminating `EADDRINUSE` (`listen: address already in use`) errors on fixed loopback ports (45167/45168 in Singularity, 45157/45158 upstream).
 - **`CoreProcessSupervisor`**:
   - Runs the core in a dedicated worker thread (`CoreServerThread`).
   - Continuously streams the multiplexed stdout/stderr output to `files/logs/core.log` and an in-memory circular buffer (`LogRingBuffer`).
@@ -90,12 +90,12 @@ The system core (`language_server`) is compiled for Linux/Glibc and executed in 
   - Solves the Google OAuth authorization interception challenge (Google blocks authorization within embedded WebViews).
   - Inspects `language_server` output lines in real time, detecting markers such as `AGY_OPEN_URL=`, `ANTIGRAVITY_OPEN_URL:`, and `accounts.google.com` links.
   - Redirects the user to the default external system browser via `CustomTabLauncher`.
-  - Also listens for the protected broadcast `dev.continuum.antigravity.ACTION_OPEN_URL`.
+  - Also listens for the protected broadcast `dev.singularity.antigravity.ACTION_OPEN_URL`.
 
-### 2.2. WebView, UI, and Application Loading (`dev.continuum.antigravity.ui`)
+### 2.2. WebView, UI, and Application Loading (`dev.singularity.antigravity.ui`)
 
 - **Two-Phase Startup Flow (Splash & Ready Flow)**:
-  1. `MainActivity` launches with a lightweight native Canvas-based splash screen (`NativeSplashDotsView`) without initializing the heavy Chromium WebView for the three-dots animation (saving ~40 MB RAM).
+  1. `MainActivity` launches with a lightweight loading overlay (`SplashLoadingHtml`) without blocking during the three-dots animation.
   2. In parallel, `CoreServerService` extracts the core and awaits local HTTPS port readiness (via `CoreReadyProbe`).
   3. Once the port responds, `WebViewHost.loadApp()` injects the HTML payload and configuration.
   4. The splash screen is dismissed only upon receiving the initial JavaScript render signal (`window.Android.onUiReady()`), eliminating white screen flickers.
@@ -109,9 +109,9 @@ The system core (`language_server`) is compiled for Linux/Glibc and executed in 
   - Handles regular file downloads and Base64 Blobs (`saveBlob`).
   - Supports file and directory selection via the Storage Access Framework (SAF) and persists folder permissions (`takePersistableUriPermission`).
 
-### 2.3. System Gateway (`dev.continuum.antigravity.gateway`)
+### 2.3. System Gateway (`dev.singularity.antigravity.gateway`)
 
-An embedded, high-performance HTTP server (`SystemGatewayServer`) listening strictly on `127.0.0.1:45161` (with automatic fallback to port `+2` if occupied). The active port number is persisted to `files/logs/gateway.port`.
+An embedded, high-performance HTTP server (`SystemGatewayServer`) listening strictly on `127.0.0.1:45170` (dev: `45171`, upstream: `45160/45161`, with automatic fallback to port `+2` if occupied). The active port number is persisted to `files/logs/gateway.port`.
 
 The gateway bridges the Linux userspace environment (bash scripts, `agy-notify`, `agy-daemon` CLI tools) with native Android platform APIs:
 
@@ -130,14 +130,14 @@ The gateway bridges the Linux userspace environment (bash scripts, `agy-notify`,
 | `/gateway/commands` | `SystemGatewayServer` | Returns history and execution statuses of dispatched gateway commands. |
 | `/gateway/crash` | `SystemGatewayServer` | Diagnostic snapshot of the most recent core process crash. |
 
-### 2.4. Security and JavaScript Bridge (`dev.continuum.antigravity.bridge`)
+### 2.4. Security and JavaScript Bridge (`dev.singularity.antigravity.bridge`)
 
 The `AndroidBridge` class exposes a strictly minimal, isolated interface to the web frontend (`@JavascriptInterface`).
 
 - **Cross-Frame Protection:** Sensitive operations (`onUiReady`, `onUiError`, `saveBlob`) require passing the cryptographic token `blobBridgeToken`, which is known only to the trusted top-level document. Token comparison uses `MessageDigest.isEqual` to prevent timing attacks.
 - **Isolation:** Shell execution, arbitrary notification dispatching, and direct Shizuku access are strictly excluded from `AndroidBridge`. All privileged operations are routed through the local `SystemGatewayServer` instead.
 
-### 2.5. Dynamic Icons and Theming (`dev.continuum.antigravity.theme`)
+### 2.5. Dynamic Icons and Theming (`dev.singularity.antigravity.theme`)
 
 - **Duolingo-Style Launcher Architecture:**
   Rather than relying on `activity-alias`, two separate real Activity classes are declared in the manifest:
@@ -161,16 +161,16 @@ The `AndroidBridge` class exposes a strictly minimal, isolated interface to the 
 
 ### 3.2. Dead Code
 The following classes were identified as unused and removed from the codebase:
-- `dev.continuum.antigravity.bridge.ShellBridge` (removed)
-- `dev.continuum.antigravity.bridge.ExternalUrlBridge` (removed)
-- `dev.continuum.antigravity.bridge.NotificationBridge` (removed)
-- `dev.continuum.antigravity.install.ChmodRunner` (removed)
-- `dev.continuum.antigravity.oauth.AuthReloader` (removed)
-- `dev.continuum.antigravity.oauth.AuthTokenPoller` (removed)
-- `dev.continuum.antigravity.ui.lifecycle.DeepLinkForwarder` (removed)
-- `dev.continuum.antigravity.ui.splash.SplashLoadingHtml` (removed)
-- `dev.continuum.antigravity.util.LoopbackHost` (removed)
-- `dev.continuum.antigravity.util.PackageInspector` (removed)
+- `dev.singularity.antigravity.bridge.ShellBridge` (removed)
+- `dev.singularity.antigravity.bridge.ExternalUrlBridge` (removed)
+- `dev.singularity.antigravity.bridge.NotificationBridge` (removed)
+- `dev.singularity.antigravity.install.ChmodRunner` (removed)
+- `dev.singularity.antigravity.oauth.AuthReloader` (removed)
+- `dev.singularity.antigravity.oauth.AuthTokenPoller` (removed)
+- `dev.singularity.antigravity.ui.lifecycle.DeepLinkForwarder` (removed)
+- `dev.singularity.antigravity.ui.splash.SplashLoadingHtml` (removed)
+- `dev.singularity.antigravity.util.LoopbackHost` (removed)
+- `dev.singularity.antigravity.util.PackageInspector` (removed)
 
 ### 3.3. Path and IPC Workarounds
 - **`ExecHandler` Integration with `rish` (RESOLVED):** Implemented automated binary path resolution in `ExecHandler` (checking `$PREFIX/bin/rish` and `files/runtime/bin/rish`), ensured mandatory passing of `RISH_APPLICATION_ID` (`context.getPackageName()`) for Shizuku authorization, and cleared potentially conflicting `LD_LIBRARY_PATH`.

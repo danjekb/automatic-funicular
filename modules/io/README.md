@@ -1,6 +1,6 @@
-# Antigravity v2 - I/O & Event Bus Subsystem (`modules/io`)
+# Singularity - I/O & Event Bus Subsystem (`modules/io`)
 
-> The **I/O Module** is the central subsystem for inter-process communication (IPC), system stream interception (stdout/stderr), and asynchronous event routing in the Android/Linux environment for Google Antigravity v2.
+> The **I/O Module** is the central subsystem for inter-process communication (IPC), system stream interception (stdout/stderr), and asynchronous event routing in the Android/Linux environment for Singularity.
 
 ---
 
@@ -58,7 +58,7 @@ All events circulating through the bus strictly adhere to the `spec/event_schema
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "AntigravityEventEnvelope",
+  "title": "SingularityEventEnvelope",
   "type": "object",
   "required": ["event", "timestamp", "source", "data"],
   "properties": {
@@ -163,11 +163,11 @@ Interceptors are utilized during core server launch (`modules/runner/start_core.
 1. **Android Tray Notifier (`outputs/notify_tray.sh`)**
    - Reads event JSON from `stdin`.
    - Extracts the event name and message body.
-   - Posts an Android system notification via `agy-notify` or `am broadcast -a dev.continuum.antigravity.ACTION_NOTIFY`.
+   - Posts an Android system notification via `agy-notify` or `am broadcast -a dev.singularity.antigravity.ACTION_NOTIFY`.
 
 2. **Android Browser Intent Emitter (`outputs/broadcast_emitter.sh`)**
    - Receives `core.url.open` events.
-   - Extracts the `url` field and broadcasts Android Intent `dev.continuum.antigravity.ACTION_OPEN_URL` for opening in an external browser or Custom Tabs.
+   - Extracts the `url` field and broadcasts Android Intent `dev.singularity.antigravity.ACTION_OPEN_URL` for opening in an external browser or Custom Tabs.
 
 3. **Persistent JSONL Logger (`outputs/file_sink.py`)**
    - Writes every incoming event to an append-only log file (defaults to `~/.gemini/events.jsonl` or the `AGY_EVENT_LOG` variable).

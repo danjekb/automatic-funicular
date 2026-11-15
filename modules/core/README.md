@@ -1,12 +1,12 @@
-# Antigravity Core Module (`modules/core`)
+# Singularity Core Module (`modules/core`)
 
-> Foundational distribution module for the Antigravity v2 core: unpacking, AArch64 ELF/ABI validation, glibc environment provisioning, system shims, and cryptographic runtime directory assembly.
+> Foundational distribution module for the Singularity core: unpacking, AArch64 ELF/ABI validation, glibc environment provisioning, system shims, and cryptographic runtime directory assembly.
 
 ---
 
 ## 1. Purpose and Responsibilities
 
-The `modules/core` module serves as the runtime foundation for Antigravity v2 on the Android platform (ARM64 / AArch64). It delivers the upstream language server binary, glibc shared libraries, certificates, configurations, and provides tooling for:
+The `modules/core` module serves as the runtime foundation for Singularity on the Android platform (ARM64 / AArch64). It delivers the upstream language server binary, glibc shared libraries, certificates, configurations, and provides tooling for:
 
 1. **Unpacking and Extraction (`unpack/`):** Detecting archive formats (tar.gz / raw ELF) and extracting `language_server` with proper POSIX permissions.
 2. **Binary Validation (`validate/`):** Verifying SHA-256 checksums, validating 64-bit Little-Endian ELF headers, confirming AArch64 target architecture (EM=183), and checking binary types (ET_DYN/PIE).
