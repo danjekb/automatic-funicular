@@ -609,7 +609,7 @@ function createModelManager(directory, codec, openExternal, overrides = {}) {
                     clientSecret: options.clientSecret,
                     label: options.label,
                     signal: controller.signal,
-                }, openExternal);
+                }, openExternal, dependencies);
                 if (controller.signal.aborted)
                     throw new Error('Google login cancelled');
                 if (options.authMode === 'antigravity')

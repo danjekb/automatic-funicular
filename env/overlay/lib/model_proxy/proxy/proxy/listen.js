@@ -52,12 +52,23 @@ function getRequiredProxyPort(appPath) {
 const occupied = (port) => `Port ${port} is occupied. The patched language server requires this exact port; close the other instance before starting Antigravity.`;
 function listenIpv4(server, preferredPort, allowFallback) {
     return new Promise((resolve, reject) => {
+        let attempts = 0;
+        const maxAttempts = 10;
         let triedFallback = false;
         const onListening = () => {
             server.removeListener('error', onError);
             resolve(server.address().port);
         };
         const onError = (error) => {
+            if (error.code === 'EADDRINUSE' && attempts < maxAttempts) {
+                attempts++;
+                setTimeout(() => {
+                    try {
+                        server.listen(preferredPort, '127.0.0.1');
+                    } catch {}
+                }, 500);
+                return;
+            }
             if (error.code === 'EADDRINUSE' && allowFallback && !triedFallback) {
                 triedFallback = true;
                 server.listen(0, '127.0.0.1');

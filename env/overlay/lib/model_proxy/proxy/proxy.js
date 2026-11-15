@@ -1372,7 +1372,7 @@ async function startProxy(options = {}) {
     });
     server = newServer;
     (0, shared_1.startCleanupInterval)();
-    startingProxy = (0, listen_1.listenProxy)(newServer, requiredPort ?? 50999, true)
+    startingProxy = (0, listen_1.listenProxy)(newServer, requiredPort ?? 50999, options.port ? false : true)
         .then((port) => {
         proxyPort = port;
         electron_log_1.default.info(`[Proxy] Server listening on http://127.0.0.1:${proxyPort}`);

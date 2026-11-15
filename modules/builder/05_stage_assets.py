@@ -53,10 +53,8 @@ def stage_assets(staging_dir, no_bypass=False):
     env_src = os.path.join(PROJECT_ROOT, "env", "dist", "env")
     env_dst = os.path.join(assets_dir, "env")
     print(f"[*] Staging env assets from {env_src} -> {env_dst}...")
-    manifest_file = os.path.join(env_src, "manifest.json")
-    if not os.path.isfile(manifest_file):
-        print(f"[*] env manifest missing, building env assets...")
-        subprocess.check_call(["bash", os.path.join(PROJECT_ROOT, "env", "build.sh"), "assets"])
+    print(f"[*] Building env assets from env/overlay...")
+    subprocess.check_call(["bash", os.path.join(PROJECT_ROOT, "env", "build.sh"), "assets"])
     if os.path.exists(env_dst):
         shutil.rmtree(env_dst)
     shutil.copytree(env_src, env_dst)
