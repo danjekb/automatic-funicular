@@ -151,7 +151,7 @@ public final class UpdateChecker {
             connection.setReadTimeout(TIMEOUT_MS);
             connection.setInstanceFollowRedirects(true);
             connection.setRequestProperty("Accept", "application/vnd.github+json");
-            connection.setRequestProperty("User-Agent", "Continuum/" + BuildConfig.APP_VERSION_NAME);
+            connection.setRequestProperty("User-Agent", "Singularity/" + BuildConfig.APP_VERSION_NAME);
             int code = connection.getResponseCode();
             if (code < 200 || code >= 300) {
                 throw new IOException("HTTP " + code + " from " + url);

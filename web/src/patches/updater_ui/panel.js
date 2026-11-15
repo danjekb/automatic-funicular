@@ -93,7 +93,7 @@ function updaterRender(state) {
 
   panel.textContent = '';
 
-  var head = updaterEl('h3', null, 'Continuum updates');
+  var head = updaterEl('h3', null, 'Singularity updates');
   panel.appendChild(head);
 
   panel.appendChild(updaterEl('div', 'ag-row', 'Installed: ' + installed));
@@ -167,6 +167,6 @@ function updaterRender(state) {
 
   if (status === 'ready' && state.needsInstallPermission) {
     panel.appendChild(updaterEl('div', 'ag-error',
-      'Android needs permission to install this update. Tap Install, allow "Install unknown apps" for Continuum, then tap Install again.'));
+      'Android needs permission to install this update. Tap Install, allow "Install unknown apps" for Singularity, then tap Install again.'));
   }
 }

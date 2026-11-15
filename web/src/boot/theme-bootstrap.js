@@ -39,7 +39,7 @@
       try { isAmoled = window.Android.isAmoled(); } catch (e) {}
     }
     if (!isAmoled && typeof localStorage !== 'undefined') {
-      isAmoled = localStorage.getItem('jetski.amoled') === 'true';
+      isAmoled = localStorage.getItem('jetski.amoled') === 'true' || localStorage.getItem('theme-preset-dark') === 'AMOLED Black';
     }
     if (isAmoled) {
       document.documentElement.classList.add('amoled-black');

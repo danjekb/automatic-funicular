@@ -66,7 +66,7 @@ public final class UpdateDownloader {
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
             connection.setReadTimeout(READ_TIMEOUT_MS);
             connection.setInstanceFollowRedirects(true);
-            connection.setRequestProperty("User-Agent", "Continuum-Update");
+            connection.setRequestProperty("User-Agent", "Singularity-Update");
             int code = connection.getResponseCode();
             if (code < 200 || code >= 300) {
                 throw new IOException("HTTP " + code + " downloading update");

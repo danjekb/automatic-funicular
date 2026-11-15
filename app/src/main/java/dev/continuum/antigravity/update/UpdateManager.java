@@ -199,7 +199,7 @@ public final class UpdateManager {
                     UpdateInstaller.openInstallPermissionSettings(context);
                     synchronized (UpdateManager.this) {
                         state = "ready";
-                        error = "Allow 'Install unknown apps' for Continuum, then press Install again.";
+                        error = "Allow 'Install unknown apps' for Singularity, then press Install again.";
                     }
                     publish();
                     return;

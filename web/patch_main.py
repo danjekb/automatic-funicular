@@ -198,38 +198,36 @@ def patch_main(file_path):
         modified = True
         print("[web-patch] Injected Model Manager dashboard button into Models screen")
 
-    # 8. Inject AMOLED Pure Black toggle in Appearance settings (Prc)
-    prc_target = 'var Prc=()=>{'
-    prc_repl = (
-        'var Prc=()=>{'
-        'var [isAmoled,setIsAmoled]=(0,A.useState)(function(){try{return localStorage.getItem("jetski.amoled")==="true"}catch(E){return!1}});'
-        'var toggleAmoled=(0,A.useCallback)(function(val){'
-        'setIsAmoled(val);'
-        'try{'
-        'localStorage.setItem("jetski.amoled",val?"true":"false");'
-        'document.documentElement.classList.toggle("amoled-black",val);'
-        'document.body&&document.body.classList.toggle("amoled-black",val);'
-        'if(window.Android&&typeof window.Android.onVisualThemeChanged==="function"){'
-        'window.Android.onVisualThemeChanged(val?"amoled":(t==="dark"?"dark":"light"));'
-        '}'
-        '}catch(E){}'
-        '},[t]);'
-    )
-    if prc_target in content and "isAmoled" not in content:
-        content = content.replace(prc_target, prc_repl, 1)
+    # 8a. Add "AMOLED Black" theme preset to Jrc.dark
+    jrc_target = 'dark:{"Default Dark":{background:"#101010",foregroundOverride:"#cccccc",\nprimary:"#007acc"},'
+    jrc_repl = 'dark:{"Default Dark":{background:"#101010",foregroundOverride:"#cccccc",\nprimary:"#007acc"},"AMOLED Black":{background:"#000000",foregroundOverride:"#ffffff",primary:"#007acc"},'
+    if jrc_target in content and '"AMOLED Black":{' not in content:
+        content = content.replace(jrc_target, jrc_repl, 1)
         modified = True
-        print("[web-patch] Injected AMOLED state and handler into Appearance (Prc)")
+        print("[web-patch] Added AMOLED Black to theme presets (Jrc.dark)")
 
-    contrast_target = 'A.createElement(ZKb,{settingKey:Ui.CONTRAST,label:"Contrast",description:"",options:Mrc,resolveOptionToString:Nrc})'
-    contrast_repl = (
-        'A.createElement(ZKb,{settingKey:Ui.CONTRAST,label:"Contrast",description:"",options:Mrc,resolveOptionToString:Nrc}),'
-        'A.createElement(v3,{label:"Pure Black / AMOLED",description:"Use true 100% black (#000000) for OLED/AMOLED screens to turn off black pixels and maximize battery life.",'
-        'rightElement:A.createElement(dX,{checked:!!isAmoled,onCheckedChange:toggleAmoled})})'
-    )
-    if contrast_target in content and "Pure Black / AMOLED" not in content:
-        content = content.replace(contrast_target, contrast_repl, 1)
+    # 8b. Add "AMOLED Black" syntax highlighting preset to Drc.dark
+    drc_target = 'dark:{"Default Dark":{comment:"#8292a2",punctuation:"#f8f8f2",property:"#f92672",deleted:"#f92672",inserted:"#a6e22e",tag:"#f92672",constant:"#f92672",number:"#ae81ff",string:"#a6e22e",attrName:"#a6e22e",builtin:"#a6e22e",operator:"#f8f8f2",variable:"#f8f8f2",attrValue:"#e6db74",keyword:"#66d9ef",function:"#e6db74",\nclassName:"#e6db74",regex:"#fd971f"},'
+    drc_repl = drc_target + '"AMOLED Black":{comment:"#8292a2",punctuation:"#f8f8f2",property:"#f92672",deleted:"#f92672",inserted:"#a6e22e",tag:"#f92672",constant:"#f92672",number:"#ae81ff",string:"#a6e22e",attrName:"#a6e22e",builtin:"#a6e22e",operator:"#f8f8f2",variable:"#f8f8f2",attrValue:"#e6db74",keyword:"#66d9ef",function:"#e6db74",className:"#e6db74",regex:"#fd971f"},'
+    if drc_target in content and '"AMOLED Black":{comment:' not in content:
+        content = content.replace(drc_target, drc_repl, 1)
         modified = True
-        print("[web-patch] Injected AMOLED toggle switch into Appearance settings")
+        print("[web-patch] Added AMOLED Black to syntax presets (Drc.dark)")
+
+    # 8c. Unclamp #050505 to #000000 and sync AMOLED state with Android & DOM
+    clamp_target = 'b=b?"#050505":h;'
+    clamp_repl = (
+        'b=b?"#000000":h;{let _amoled=(h==="#000000");'
+        'document.documentElement.classList.toggle("amoled-black",_amoled);'
+        'document.body&&document.body.classList.toggle("amoled-black",_amoled);'
+        'try{localStorage.setItem("jetski.amoled",_amoled?"true":"false");}catch(E){}'
+        'if(window.Android&&typeof window.Android.onVisualThemeChanged==="function"){'
+        'window.Android.onVisualThemeChanged(_amoled?"amoled":(a?"dark":"light"));}}'
+    )
+    if clamp_target in content:
+        content = content.replace(clamp_target, clamp_repl, 1)
+        modified = True
+        print("[web-patch] Unclamped black to #000000 and wired AMOLED visual theme sync")
 
     if modified:
         with open(file_path, "w", encoding="utf-8") as f:

@@ -79,7 +79,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-BASE_PREFIX="${CUSTOM_PREFIX:-continuum}"
+BASE_PREFIX="${CUSTOM_PREFIX:-singularity}"
 
 if [ -n "$CUSTOM_OUT" ]; then
     OUT_APK="$CUSTOM_OUT"

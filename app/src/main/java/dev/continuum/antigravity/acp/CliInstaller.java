@@ -138,7 +138,7 @@ public final class CliInstaller {
             connection.setConnectTimeout(TIMEOUT_MS);
             connection.setReadTimeout(TIMEOUT_MS);
             connection.setInstanceFollowRedirects(true);
-            connection.setRequestProperty("User-Agent", "Continuum-CLI-Installer");
+            connection.setRequestProperty("User-Agent", "Singularity-CLI-Installer");
             int code = connection.getResponseCode();
             if (code < 200 || code >= 300) {
                 throw new java.io.IOException("HTTP " + code + " downloading the CLI");
@@ -177,7 +177,7 @@ public final class CliInstaller {
         try {
             connection.setConnectTimeout(TIMEOUT_MS);
             connection.setReadTimeout(TIMEOUT_MS);
-            connection.setRequestProperty("User-Agent", "Continuum-CLI-Installer");
+            connection.setRequestProperty("User-Agent", "Singularity-CLI-Installer");
             int code = connection.getResponseCode();
             if (code < 200 || code >= 300) {
                 throw new java.io.IOException("HTTP " + code + " fetching the CLI manifest");

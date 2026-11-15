@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # build.sh - Convenient root wrapper for Continuum APK builder.
 # Usage:
-#   bash build.sh                 # Build standard release edition (dist/continuum.apk)
-#   bash build.sh --dev           # Build debuggable dev edition (dist/continuum-dev.apk)
+#   bash build.sh                 # Build standard release edition (dist/singularity.apk)
+#   bash build.sh --dev           # Build debuggable dev edition (dist/singularity-dev.apk)
 #   bash build.sh --fast          # Fast uncompressed assets iteration
 
 set -euo pipefail

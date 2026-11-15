@@ -110,7 +110,7 @@ function backendRender(status) {
   panel.textContent = '';
   panel.appendChild(backendEl('h3', null, 'AI backend'));
 
-  panel.appendChild(backendEl('div', 'ag-row', 'Active: ' + (mode === 'acp' ? 'Official Antigravity CLI (ACP)' : 'Continuum embedded engine')));
+  panel.appendChild(backendEl('div', 'ag-row', 'Active: ' + (mode === 'acp' ? 'Official Antigravity CLI (ACP)' : 'Singularity embedded engine')));
   if (mode === 'acp') {
     panel.appendChild(backendEl('div', 'ag-row', 'CLI: ' + (status.cliInstalled ? ('installed ' + (status.cliVersion || 'version unknown')) : 'not installed')));
     panel.appendChild(backendEl('div', 'ag-row', 'Process: ' + (status.processAlive ? 'running' : 'stopped')));

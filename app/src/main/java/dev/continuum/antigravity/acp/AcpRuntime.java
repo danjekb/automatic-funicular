@@ -194,7 +194,7 @@ public final class AcpRuntime {
         newClient.connect(started.getInputStream(), started.getOutputStream());
         this.client = newClient;
 
-        JSONObject init = newClient.initialize("Continuum", BuildConfig.APP_VERSION_NAME);
+        JSONObject init = newClient.initialize("Singularity", BuildConfig.APP_VERSION_NAME);
         JSONArray methods = init.optJSONArray("authMethods");
         this.authMethods = methods != null ? methods : new JSONArray();
         JSONObject agentInfo = init.optJSONObject("agentInfo");
