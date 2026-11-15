@@ -198,8 +198,10 @@ function exchangeToken(parameters, signal) {
             res.on('aborted', () => finish(new Error('Google token exchange ended unexpectedly')));
             res.on('error', () => finish(new Error('Google token exchange failed')));
             res.on('end', () => {
+                const responseText = Buffer.concat(chunks).toString('utf8');
                 if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
-                    finish(new Error((0, googleAccessErrors_1.describeGoogleAccessError)(res.statusCode || 502, 'oauth').message));
+                    console.error('[GoogleOAuth] Token exchange failed:', res.statusCode, responseText);
+                    finish(new Error(`Token exchange failed (${res.statusCode}): ${responseText}`));
                     return;
                 }
                 try {
@@ -237,7 +239,7 @@ async function loginGoogleAccount(options, openExternal, dependencies = {}) {
         throw new Error('Choose Antigravity sign-in or Custom Desktop OAuth.');
     const native = options.authMode === 'antigravity' ? (dependencies.resolveNativeClient || googleNativeClient_1.resolveGoogleNativeClient)() : undefined;
     const clientId = (native?.clientId ?? options.clientId)?.trim();
-    const clientSecret = (native?.clientSecret ?? options.clientSecret)?.trim();
+    const clientSecret = native ? undefined : options.clientSecret?.trim();
     // Match the recognized vendor client's registered callback while listening only on IPv4 loopback (always 127.0.0.1 IP on Android).
     const callbackHost = '127.0.0.1';
     const callbackPath = native ? '/oauth-callback' : '/oauth2callback';
@@ -407,7 +409,8 @@ async function loginGoogleAccount(options, openExternal, dependencies = {}) {
                 });
             })
                 .catch((error) => {
-                reply(502, 'Login could not be completed. Return to the application for details.');
+                console.error('[GoogleOAuth] Login error:', error);
+                reply(502, `Login could not be completed: ${error && error.message ? error.message : error}`);
                 finish(error instanceof Error ? error : new Error('Google login failed'));
             });
         };

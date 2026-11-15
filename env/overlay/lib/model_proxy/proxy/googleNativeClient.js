@@ -75,19 +75,13 @@ function extractOAuthFromLibrary(filePath) {
                         clientId = idMatches.find(id => id.startsWith('1071006060591')) || idMatches[0];
                     }
                 }
-                if (!clientSecret) {
-                    const secMatches = str.match(/(GOCSPX-[A-Za-z0-9_-]{28})/g);
-                    if (secMatches && secMatches.length > 0) {
-                        clientSecret = secMatches[0];
-                    }
-                }
-                if (clientId && clientSecret) break;
+                if (clientId) break;
                 offset += bytesRead - 512;
             }
             if (clientId) {
                 return {
                     clientId,
-                    clientSecret: clientSecret || '',
+                    clientSecret: undefined,
                     scopes: exports.GOOGLE_NATIVE_SCOPES,
                 };
             }
