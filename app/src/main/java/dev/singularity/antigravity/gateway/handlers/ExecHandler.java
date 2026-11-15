@@ -38,7 +38,9 @@ public final class ExecHandler {
         String cmd = payload.optString("cmd", "").trim();
         String source = payload.optString("source", "agent");
         long timeoutMs = payload.optLong("timeout_ms", 30000);
-        boolean useRish = payload.optBoolean("rish", false);
+        boolean usePrivileged = payload.optBoolean("root", false)
+                || payload.optBoolean("su", false)
+                || payload.optBoolean("rish", false);
         String cwdPath = payload.optString("cwd", context.getFilesDir().getAbsolutePath());
 
         String cmdId = "cmd_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 4);
@@ -68,8 +70,8 @@ public final class ExecHandler {
 
         try {
             ProcessBuilder pb;
-            if (useRish) {
-                pb = new ProcessBuilder(resolveRishPath(), "-c", cmd);
+            if (usePrivileged) {
+                pb = new ProcessBuilder(resolveSuPath(), "-c", cmd);
             } else {
                 pb = new ProcessBuilder("/system/bin/sh", "-c", cmd);
             }
@@ -149,23 +151,25 @@ public final class ExecHandler {
         } catch (Exception ignored) {}
     }
 
-    private String resolveRishPath() {
+    private String resolveSuPath() {
         File files = context.getFilesDir();
-        File[] candidates = new File[]{
-                new File(files, "usr/bin/rish"),
-                new File(files, "runtime/bin/rish"),
-                new File(files, "bin/rish")
+        String[] candidates = new String[]{
+                "/system/bin/su",
+                "/system/xbin/su",
+                "/sbin/su",
+                "/system/sbin/su",
+                "/data/adb/ksu/bin/su",
+                "/data/adb/ap/bin/su",
+                new File(files, "usr/bin/su").getAbsolutePath(),
+                new File(files, "runtime/bin/su").getAbsolutePath(),
+                new File(files, "bin/su").getAbsolutePath()
         };
-        for (File candidate : candidates) {
-            if (candidate.exists() && candidate.canExecute()) {
-                return candidate.getAbsolutePath();
+        for (String candidate : candidates) {
+            File f = new File(candidate);
+            if (f.exists() && f.canExecute()) {
+                return candidate;
             }
         }
-        for (File candidate : candidates) {
-            if (candidate.exists()) {
-                return candidate.getAbsolutePath();
-            }
-        }
-        return new File(files, "usr/bin/rish").getAbsolutePath();
+        return "su";
     }
 }

@@ -53,6 +53,7 @@ public final class EngineConfigJson {
             o.put("home", appContext.getFilesDir().getAbsolutePath());
             o.put("tmpDir", appContext.getCacheDir().getAbsolutePath());
             o.put("appDataDir", runtime.getAppDataDir().getAbsolutePath());
+            o.put("rootAvailable", shizuku.isAvailable());
             o.put("shizukuAvailable", shizuku.isAvailable());
             o.put("theme", theme.getTheme());
             String mUrl = readModelManagerUrl(appContext);

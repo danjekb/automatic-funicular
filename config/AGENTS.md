@@ -80,33 +80,33 @@ AGY includes an ultra-fast, native package manager (`pkg`) written in Bash & AWK
 
 ---
 
-## 4. Elevated Operations via Shizuku (`rish`)
+## 4. Elevated Operations via Root (`su`)
 
-The agent has native access to Shizuku's elevated ADB shell (`uid=2000(shell)`):
-- **Executable Location:** `$PREFIX/bin/rish` (invoked via `rish -c "<command>"`).
-- **Service Dependency:** Requires the Shizuku service to be running on the device. If `rish` reports `Server is not running`, ask the user to start Shizuku.
+The agent has direct access to root shell (`uid=0(root)`):
+- **Executable Location:** `$PREFIX/bin/su` (invoked via `su -c "<command>"` or `rish -c "<command>"` as a backward-compatible alias).
+- **Service Dependency:** Requires root access on the device (KernelSU, Magisk, or APatch).
 - **Common Elevated Operations:**
-  1. **Restricted Filesystem Access:** Access files in protected directories (e.g. `/storage/emulated/0/Android/data`):
+  1. **Restricted Filesystem Access:** Access files anywhere on the system (e.g. `/data/data/`, `/storage/emulated/0/Android/data`):
      ```bash
-     rish -c "ls -la /storage/emulated/0/Android/data"
-     rish -c "cp <src> <dest>"
+     su -c "ls -la /data/data/dev.singularity.antigravity"
+     su -c "cp <src> <dest>"
      ```
   2. **APK & Package Management (`pm`):**
      ```bash
-     rish -c "pm install -r /storage/emulated/0/.../app.apk"
-     rish -c "pm list packages -3"
-     rish -c "pm uninstall com.example.app"
+     su -c "pm install -r /storage/emulated/0/.../app.apk"
+     su -c "pm list packages -3"
+     su -c "pm uninstall com.example.app"
      ```
   3. **Activity Management & Diagnostics (`am`, `logcat`, `dumpsys`):**
      ```bash
-     rish -c "am start -n com.example.app/.MainActivity"
-     rish -c "logcat -d -t 150"
-     rish -c "dumpsys package com.example.app"
+     su -c "am start -n com.example.app/.MainActivity"
+     su -c "logcat -d -t 150"
+     su -c "dumpsys package com.example.app"
      ```
   4. **System Properties & Settings:**
      ```bash
-     rish -c "getprop ro.build.version.release"
-     rish -c "settings get global airplane_mode_on"
+     su -c "getprop ro.build.version.release"
+     su -c "settings get global airplane_mode_on"
      ```
 
 ---

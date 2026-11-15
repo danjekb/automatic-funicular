@@ -1,27 +1,20 @@
 #!/system/bin/sh
-# AGY Rish shim: Shizuku ADB shell privileged execution wrapper.
-BASEDIR=$(dirname "$0")
-DEX="$BASEDIR"/rish_shizuku.dex
-
-if [ ! -f "$DEX" ]; then
-  echo "Cannot find $DEX, please check the tutorial in Shizuku app"
-  exit 1
+# Singularity privileged shell wrapper: routes through su for full root access
+BASEDIR="$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)"
+if [ -x "$BASEDIR/su" ]; then
+  exec "$BASEDIR/su" "$@"
 fi
 
-SDK=$(/system/bin/getprop ro.build.version.sdk 2>/dev/null || echo 0)
-if [ "$SDK" -ge 34 ]; then
-  if [ -w "$DEX" ]; then
-    echo "On Android 14+, app_process cannot load writable dex."
-    echo "Attempting to remove the write permission..."
-    chmod 400 "$DEX" 2>/dev/null
+unset LD_PRELOAD LD_LIBRARY_PATH
+for p in /system/bin/su /system/xbin/su /sbin/su /system/sbin/su /data/adb/ksu/bin/su /data/adb/ap/bin/su; do
+  if [ -x "$p" ]; then
+    exec "$p" "$@"
   fi
-  if [ -w "$DEX" ]; then
-    echo "Cannot remove the write permission of $DEX."
-    echo "You can copy the file to terminal app's private directory (/data/data/<package>), so that remove write permission is possible"
-    exit 1
-  fi
+done
+
+if command -v su >/dev/null 2>&1; then
+  exec su "$@"
 fi
 
-# Bundled with the AGY app: default to its own package id.
-[ -z "$RISH_APPLICATION_ID" ] && export RISH_APPLICATION_ID="dev.singularity.antigravity"
-exec env -u LD_PRELOAD -u LD_LIBRARY_PATH /system/bin/app_process -Djava.class.path="$DEX" /system/bin --nice-name=rish rikka.shizuku.shell.ShizukuShellLoader "$@"
+echo "rish: root binary (su) not found on device" >&2
+exit 1

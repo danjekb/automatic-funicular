@@ -29,7 +29,8 @@ env/
 │   │   ├── agy-fix-paths   # Dynamic path and shebang normalization utility
 │   │   ├── agy-notify      # Android system notification management tool
 │   │   ├── agy-upgrade     # Safe updater, backup, and migration manager
-│   │   ├── rish            # Shizuku client for privileged ADB shell access (uid=2000)
+│   │   ├── su              # Root shell wrapper for privileged access (uid=0)
+│   │   ├── rish            # Compatibility shim routing to root shell (su)
 │   │   └── cs              # Language server compatibility shim
 │   ├── etc/                # System configuration files
 │   │   ├── antigravity/    # AGENTS.md (global agent instructions and rules)

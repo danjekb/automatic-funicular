@@ -93,18 +93,13 @@ def pack_binaries(core_bin_path: str, loader_path: str, shims_dir: str, dest_bin
     # Privilege shims
     priv_dir = os.path.join(shims_dir, "privilege")
     if os.path.isdir(priv_dir):
-        src_rish = os.path.join(priv_dir, "rish.sh")
-        if os.path.isfile(src_rish):
-            dst_f = os.path.join(dest_bin_dir, "rish")
-            shutil.copyfile(src_rish, dst_f)
-            make_exec(dst_f)
-            installed.append("rish")
-        
-        src_dex = os.path.join(priv_dir, "rish_shizuku.dex")
-        if os.path.isfile(src_dex):
-            dst_dex = os.path.join(dest_bin_dir, "rish_shizuku.dex")
-            shutil.copyfile(src_dex, dst_dex)
-            installed.append("rish_shizuku.dex")
+        for name in ("su", "rish"):
+            src_shim = os.path.join(priv_dir, f"{name}.sh")
+            if os.path.isfile(src_shim):
+                dst_f = os.path.join(dest_bin_dir, name)
+                shutil.copyfile(src_shim, dst_f)
+                make_exec(dst_f)
+                installed.append(name)
 
     return installed
 

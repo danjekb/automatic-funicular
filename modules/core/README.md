@@ -12,7 +12,7 @@ The `modules/core` module serves as the runtime foundation for Singularity on th
 2. **Binary Validation (`validate/`):** Verifying SHA-256 checksums, validating 64-bit Little-Endian ELF headers, confirming AArch64 target architecture (EM=183), and checking binary types (ET_DYN/PIE).
 3. **Cryptographic Manifesting (`manifest/`):** Streaming SHA-256 hashing (1 MB chunks), generating `manifest.json`, and strictly validating file integrity.
 4. **Runtime Bundle Assembly (`bundle/`):** Building an isolated runtime directory (`bin/`, `lib/`, `certs/`, `seed/`) for downstream consumers (`modules/runner`, `modules/builder`).
-5. **System Shims (`shims/`):** Emulating Linux environment utilities (`xdg-open`, browser dispatchers, Shizuku `rish`).
+5. **System Shims (`shims/`):** Emulating Linux environment utilities (`xdg-open`, browser dispatchers, root `su` and `rish`).
 
 ---
 
@@ -60,7 +60,7 @@ modules/core/
 │   └── *.pbtxt                 # Initial onboarding protobuf state files
 ├── shims/                      # System and browser stubs
 │   ├── browser/                # xdg-open and browser dispatchers (chrome, open, etc.)
-│   ├── privilege/              # rish.sh (interface to Shizuku ADB shell)
+│   ├── privilege/              # su.sh, rish.sh (interface to root shell)
 │   └── system/                 # open_helper.sh, xdg_open.sh (URL dispatcher)
 └── tests/                      # Automated test suite
     ├── test_extractor.py       # Tests for extraction and archive_detector
