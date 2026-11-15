@@ -134,15 +134,14 @@ public final class CoreServerService extends Service {
                 try {
                     Log.i(TAG, "Starting local model adapter proxy on port 50996...");
                     java.util.List<String> cmd = new java.util.ArrayList<>();
-                    cmd.add("/system/bin/sh");
-                    cmd.add("-c");
-                    cmd.add("export PREFIX=\"" + prefixDir.getAbsolutePath() + "\" && " +
-                            "export LD_LIBRARY_PATH=\"" + prefixDir.getAbsolutePath() + "/lib\" && " +
-                            "export PATH=\"" + prefixDir.getAbsolutePath() + "/bin:$PATH\" && " +
-                            "export OPENSSL_CONF=\"" + prefixDir.getAbsolutePath() + "/etc/tls/openssl.cnf\" && " +
-                            "export SSL_CERT_FILE=\"" + prefixDir.getAbsolutePath() + "/etc/tls/cert.pem\" && " +
-                            "exec \"" + nodeExe.getAbsolutePath() + "\" \"" + proxyEntry.getAbsolutePath() + "\" " +
-                            "--port 50996 --data-dir \"" + dataDir.getAbsolutePath() + "\" --log-file \"" + logFile.getAbsolutePath() + "\"");
+                    cmd.add(nodeExe.getAbsolutePath());
+                    cmd.add(proxyEntry.getAbsolutePath());
+                    cmd.add("--port");
+                    cmd.add("50996");
+                    cmd.add("--data-dir");
+                    cmd.add(dataDir.getAbsolutePath());
+                    cmd.add("--log-file");
+                    cmd.add(logFile.getAbsolutePath());
 
                     ProcessBuilder pb = new ProcessBuilder(cmd);
                     pb.directory(getFilesDir());
