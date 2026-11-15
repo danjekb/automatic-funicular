@@ -212,7 +212,7 @@ function startLanguageServer(port, csrf, headless) {
             reject(err);
             return;
         }
-        const apiServerUrl = `http://localhost:${proxyPort}`;
+        const apiServerUrl = `http://127.0.0.1:${proxyPort}`;
         // We need to pass the override flags because the LS is running in standalone mode
         const args = [
             '--standalone',

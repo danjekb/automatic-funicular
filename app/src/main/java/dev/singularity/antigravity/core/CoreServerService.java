@@ -75,10 +75,10 @@ public final class CoreServerService extends Service {
     }
 
     private File findNodeExecutable() {
-        File nodeWrapper = new File(getFilesDir(), "runtime/bin/node");
-        if (nodeWrapper.canExecute()) return nodeWrapper;
         File usrNode = new File(getFilesDir(), "usr/bin/node");
         if (usrNode.canExecute()) return usrNode;
+        File nodeWrapper = new File(getFilesDir(), "runtime/bin/node");
+        if (nodeWrapper.canExecute()) return nodeWrapper;
         return null;
     }
 

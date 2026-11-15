@@ -279,14 +279,18 @@ async function loginGoogleAccount(options, openExternal, dependencies = {}) {
         const onAbort = () => finish(cancellation());
         const server = http.createServer((req, res) => {
             const reply = (status, text) => {
+                const isHtml = status === 200;
                 res.writeHead(status, {
-                    'Content-Type': 'text/plain; charset=utf-8',
+                    'Content-Type': isHtml ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',
                     'Cache-Control': 'no-store',
-                    'Content-Security-Policy': "default-src 'none'",
                     'Referrer-Policy': 'no-referrer',
                     Connection: 'close',
                 });
-                res.end(text);
+                if (isHtml) {
+                    res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Logowanie zakończone</title><style>body{font-family:sans-serif;background:#18181b;color:#f4f4f5;text-align:center;padding:40px 16px}.card{max-width:440px;margin:0 auto;background:#27272a;padding:28px;border-radius:12px;border:1px solid #3f3f46}.btn{display:inline-block;margin-top:20px;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600}</style></head><body><div class="card"><h2>✅ Logowanie Google powiodło się!</h2><p>Twoje konto zostało dodane.</p><a class="btn" href="http://127.0.0.1:50996/_addon/">Wróć do konfiguracji (http://127.0.0.1:50996/_addon/)</a></div><script>setTimeout(function(){window.location.href='http://127.0.0.1:50996/_addon/';},1800);</script></body></html>`);
+                } else {
+                    res.end(text);
+                }
             };
             if (finished || !redirectUri) {
                 reply(410, 'This login attempt has ended.');
