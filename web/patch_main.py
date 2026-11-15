@@ -192,13 +192,11 @@ def patch_main(file_path):
         'var u=(window.Android&&typeof window.Android.getModelManagerUrl==="function"&&window.Android.getModelManagerUrl())||window.__APP_CONFIG__?.modelManagerUrl||"http://127.0.0.1:50996/_addon/";'
         'window.open(u,"_blank");'
         '}},"Open Dashboard")}))),'
-        'A.createElement(w3,{title:"Subagents",subtitle:"Autonomous specialized agents running in isolated background contexts."},'
-        'A.createElement("div",{key:"subagents-container",ref:function(x){if(x&&window.__agySubagentsMount){window.__agySubagentsMount(x);}}})),'
     )
     if models_target in content and "Antigravity Model Manager" not in content:
         content = content.replace(models_target, models_repl, 1)
         modified = True
-        print("[web-patch] Injected Model Manager & Subagents panel into Models screen")
+        print("[web-patch] Injected Model Manager dashboard button into Models screen")
 
     # 8a. Add "AMOLED Black" theme preset to Jrc.dark
     jrc_target = 'dark:{"Default Dark":{background:"#101010",foregroundOverride:"#cccccc",\nprimary:"#007acc"},'

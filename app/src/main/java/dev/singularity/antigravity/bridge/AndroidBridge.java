@@ -25,7 +25,6 @@ public final class AndroidBridge {
     private final ThemeBridge themeBridge;
     private final EngineBridge engine;
     private final EngineConfigJson config;
-    private final dev.singularity.antigravity.core.SubagentManager subagents;
     private final String blobBridgeToken = createBlobBridgeToken();
     private volatile WeakReference<MainActivity> activityRef;
 
@@ -35,7 +34,6 @@ public final class AndroidBridge {
         this.themeBridge = new ThemeBridge(theme);
         this.engine = new EngineBridge(runtime);
         this.config = new EngineConfigJson(appContext, runtime, engine, shizuku, themeBridge);
-        this.subagents = new dev.singularity.antigravity.core.SubagentManager(appContext);
     }
 
     /** Host activity, used to dismiss the native splash once the UI has painted. */
@@ -196,91 +194,5 @@ public final class AndroidBridge {
             encoded[i * 2 + 1] = hex[value & 0x0f];
         }
         return new String(encoded);
-    }
-
-    /* ------------------------------------------------------------- subagents */
-
-    @JavascriptInterface
-    public String subagentListTypes() {
-        try {
-            org.json.JSONArray arr = new org.json.JSONArray();
-            for (dev.singularity.antigravity.core.SubagentManager.SubagentType t : subagents.listTypes()) {
-                org.json.JSONObject o = new org.json.JSONObject();
-                o.put("id", t.id);
-                o.put("name", t.nameEn);
-                o.put("namePl", t.namePl);
-                o.put("prompt", t.promptEn);
-                o.put("promptPl", t.promptPl);
-                arr.put(o);
-            }
-            return arr.toString();
-        } catch (Exception e) {
-            android.util.Log.w("AndroidBridge", "subagentListTypes failed", e);
-            return "[]";
-        }
-    }
-
-    @JavascriptInterface
-    public String subagentCreate(String typeId) {
-        try {
-            String id = subagents.createInstance(typeId);
-            return id != null ? id : "";
-        } catch (Exception e) {
-            android.util.Log.w("AndroidBridge", "subagentCreate failed", e);
-            return "";
-        }
-    }
-
-    @JavascriptInterface
-    public String subagentListInstances() {
-        try {
-            org.json.JSONArray arr = new org.json.JSONArray();
-            for (dev.singularity.antigravity.core.SubagentManager.SubagentInstance i : subagents.listInstances()) {
-                org.json.JSONObject o = new org.json.JSONObject();
-                o.put("id", i.id);
-                o.put("typeId", i.type.id);
-                o.put("typeName", i.type.nameEn);
-                o.put("createdAt", i.createdAt);
-                o.put("messageCount", i.messageCount);
-                arr.put(o);
-            }
-            return arr.toString();
-        } catch (Exception e) {
-            android.util.Log.w("AndroidBridge", "subagentListInstances failed", e);
-            return "[]";
-        }
-    }
-
-    @JavascriptInterface
-    public String subagentSendMessage(String agentId, String message) {
-        try {
-            dev.singularity.antigravity.core.SubagentManager.SubagentResponse resp = subagents.sendMessage(agentId, message);
-            org.json.JSONObject o = new org.json.JSONObject();
-            o.put("success", resp.success);
-            o.put("content", resp.content != null ? resp.content : "");
-            o.put("error", resp.error != null ? resp.error : "");
-            return o.toString();
-        } catch (Exception e) {
-            android.util.Log.w("AndroidBridge", "subagentSendMessage failed", e);
-            try {
-                org.json.JSONObject o = new org.json.JSONObject();
-                o.put("success", false);
-                o.put("content", "");
-                o.put("error", e.getMessage());
-                return o.toString();
-            } catch (Exception ee) {
-                return "{\"success\":false,\"content\":\"\",\"error\":\"unknown\"}";
-            }
-        }
-    }
-
-    @JavascriptInterface
-    public boolean subagentTerminate(String agentId) {
-        try {
-            return subagents.terminateInstance(agentId);
-        } catch (Exception e) {
-            android.util.Log.w("AndroidBridge", "subagentTerminate failed", e);
-            return false;
-        }
     }
 }
