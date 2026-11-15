@@ -14,10 +14,15 @@ public final class ActivityPainter {
     }
 
     public static void apply(Activity activity, boolean dark) {
+        boolean amoled = dark && ThemePrefs.isAmoled(activity);
+        apply(activity, dark, amoled);
+    }
+
+    public static void apply(Activity activity, boolean dark, boolean amoled) {
         if (activity == null) {
             return;
         }
-        int bg = dark ? ThemeColors.COLOR_DARK : ThemeColors.COLOR_LIGHT;
+        int bg = amoled ? ThemeColors.COLOR_AMOLED : (dark ? ThemeColors.COLOR_DARK : ThemeColors.COLOR_LIGHT);
         Window window = activity.getWindow();
         if (window == null) {
             return;

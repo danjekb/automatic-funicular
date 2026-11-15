@@ -198,6 +198,39 @@ def patch_main(file_path):
         modified = True
         print("[web-patch] Injected Model Manager dashboard button into Models screen")
 
+    # 8. Inject AMOLED Pure Black toggle in Appearance settings (Prc)
+    prc_target = 'var Prc=()=>{'
+    prc_repl = (
+        'var Prc=()=>{'
+        'var [isAmoled,setIsAmoled]=(0,A.useState)(function(){try{return localStorage.getItem("jetski.amoled")==="true"}catch(E){return!1}});'
+        'var toggleAmoled=(0,A.useCallback)(function(val){'
+        'setIsAmoled(val);'
+        'try{'
+        'localStorage.setItem("jetski.amoled",val?"true":"false");'
+        'document.documentElement.classList.toggle("amoled-black",val);'
+        'document.body&&document.body.classList.toggle("amoled-black",val);'
+        'if(window.Android&&typeof window.Android.onVisualThemeChanged==="function"){'
+        'window.Android.onVisualThemeChanged(val?"amoled":(t==="dark"?"dark":"light"));'
+        '}'
+        '}catch(E){}'
+        '},[t]);'
+    )
+    if prc_target in content and "isAmoled" not in content:
+        content = content.replace(prc_target, prc_repl, 1)
+        modified = True
+        print("[web-patch] Injected AMOLED state and handler into Appearance (Prc)")
+
+    contrast_target = 'A.createElement(ZKb,{settingKey:Ui.CONTRAST,label:"Contrast",description:"",options:Mrc,resolveOptionToString:Nrc})'
+    contrast_repl = (
+        'A.createElement(ZKb,{settingKey:Ui.CONTRAST,label:"Contrast",description:"",options:Mrc,resolveOptionToString:Nrc}),'
+        'A.createElement(v3,{label:"Pure Black / AMOLED",description:"Use true 100% black (#000000) for OLED/AMOLED screens to turn off black pixels and maximize battery life.",'
+        'rightElement:A.createElement(dX,{checked:!!isAmoled,onCheckedChange:toggleAmoled})})'
+    )
+    if contrast_target in content and "Pure Black / AMOLED" not in content:
+        content = content.replace(contrast_target, contrast_repl, 1)
+        modified = True
+        print("[web-patch] Injected AMOLED toggle switch into Appearance settings")
+
     if modified:
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)

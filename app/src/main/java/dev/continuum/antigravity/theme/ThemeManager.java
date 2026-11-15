@@ -49,6 +49,10 @@ public final class ThemeManager {
         return controller.isDark();
     }
 
+    public boolean isAmoled() {
+        return controller.isAmoled();
+    }
+
     public int getBackgroundColor() {
         return controller.getBackgroundColor();
     }

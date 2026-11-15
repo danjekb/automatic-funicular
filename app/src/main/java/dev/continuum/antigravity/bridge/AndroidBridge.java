@@ -90,6 +90,11 @@ public final class AndroidBridge {
     }
 
     @JavascriptInterface
+    public boolean isAmoled() {
+        return themeBridge.isAmoled();
+    }
+
+    @JavascriptInterface
     public boolean isDesktopMode() {
         return ui.isDesktopMode();
     }

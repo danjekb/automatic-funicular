@@ -32,5 +32,45 @@
 
   document.documentElement.style.colorScheme = theme;
   document.documentElement.classList.add(theme);
+
+  try {
+    var isAmoled = false;
+    if (typeof window !== 'undefined' && window.Android && typeof window.Android.isAmoled === 'function') {
+      try { isAmoled = window.Android.isAmoled(); } catch (e) {}
+    }
+    if (!isAmoled && typeof localStorage !== 'undefined') {
+      isAmoled = localStorage.getItem('jetski.amoled') === 'true';
+    }
+    if (isAmoled) {
+      document.documentElement.classList.add('amoled-black');
+      if (typeof window !== 'undefined' && window.Android && typeof window.Android.onVisualThemeChanged === 'function') {
+        window.Android.onVisualThemeChanged('amoled');
+      }
+    }
+
+    var style = document.createElement('style');
+    style.id = 'amoled-theme-style';
+    style.textContent = [
+      'html.amoled-black.dark, html.amoled-black.dark body, html.amoled-black.dark #root, html.amoled-black.dark .theme-standalone {',
+      '  --background: #000000 !important;',
+      '  --sidebar: #000000 !important;',
+      '  --sidebar-secondary: #060608 !important;',
+      '  --sidebar-muted: #030304 !important;',
+      '  --content: #000000 !important;',
+      '  --card: #08080a !important;',
+      '  --card-border: rgba(255, 255, 255, 0.08) !important;',
+      '  --border: rgba(255, 255, 255, 0.08) !important;',
+      '  --muted: #0c0d10 !important;',
+      '  --muted-foreground: #a0a0a8 !important;',
+      '  --secondary: #0f1013 !important;',
+      '  background-color: #000000 !important;',
+      '}',
+      'html.amoled-black.dark .bg-background { background-color: #000000 !important; }',
+      'html.amoled-black.dark .bg-card { background-color: #08080a !important; }',
+      'html.amoled-black.dark header { background-color: #000000 !important; }',
+      'html.amoled-black.dark [data-testid="conversation-message"] { background-color: transparent !important; }'
+    ].join('\n');
+    (document.head || document.documentElement).appendChild(style);
+  } catch (e) {}
 })();
 

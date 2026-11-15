@@ -80,8 +80,10 @@ public final class ThemeController {
 
     /** Called when the Web UI paints a visual theme, without altering user mode preference. */
     public void onVisualThemeChanged(final String visual) {
-        final boolean dark = "dark".equalsIgnoreCase(visual);
+        final boolean amoled = "amoled".equalsIgnoreCase(visual);
+        final boolean dark = amoled || "dark".equalsIgnoreCase(visual);
         setMode(dark ? ThemeColors.MODE_DARK : ThemeColors.MODE_LIGHT);
+        ThemePrefs.saveAmoled(appContext, amoled);
         LauncherIconSwitcher.scheduleSwitch(dark);
         final Activity activity = currentContext instanceof Activity
                 ? (Activity) currentContext : null;
@@ -89,7 +91,7 @@ public final class ThemeController {
             MainThreadPost.post(new Runnable() {
                 @Override
                 public void run() {
-                    ActivityPainter.apply(activity, dark);
+                    ActivityPainter.apply(activity, dark, amoled);
                 }
             });
         }
@@ -110,12 +112,16 @@ public final class ThemeController {
         return ThemeResolver.isDark(mode, ctx);
     }
 
+    public boolean isAmoled() {
+        return isDark() && ThemePrefs.isAmoled(appContext);
+    }
+
     public int getBackgroundColor() {
-        return isDark() ? ThemeColors.COLOR_DARK : ThemeColors.COLOR_LIGHT;
+        return isAmoled() ? ThemeColors.COLOR_AMOLED : (isDark() ? ThemeColors.COLOR_DARK : ThemeColors.COLOR_LIGHT);
     }
 
     public String getBackgroundHex() {
-        return isDark() ? ThemeColors.BG_DARK_HEX : ThemeColors.BG_LIGHT_HEX;
+        return isAmoled() ? ThemeColors.BG_AMOLED_HEX : (isDark() ? ThemeColors.BG_DARK_HEX : ThemeColors.BG_LIGHT_HEX);
     }
 
     public String getForegroundHex() {

@@ -33,4 +33,8 @@ public final class ThemeBridge {
     public String getTheme() {
         return theme != null ? theme.getTheme() : "dark";
     }
+
+    public boolean isAmoled() {
+        return theme != null && theme.isAmoled();
+    }
 }
