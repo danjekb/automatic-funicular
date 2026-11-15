@@ -98,9 +98,22 @@ async function startStandaloneService(options) {
         currentAuthUrl = url;
         return (0, browserLauncher_1.openBrowser)(url);
     };
-    const manager = (0, modelManagement_1.createModelManager)(options.dataDirectory, codec, openExternal);
+    let activeOAuthHandler = null;
+    const dependencies = {
+        callbackPort: options.port,
+        registerCallback: (handler) => {
+            activeOAuthHandler = handler;
+            return () => {
+                if (activeOAuthHandler === handler) {
+                    activeOAuthHandler = null;
+                }
+            };
+        },
+    };
+    const manager = (0, modelManagement_1.createModelManager)(options.dataDirectory, codec, openExternal, dependencies);
     const stop = async () => {
         currentAuthUrl = '';
+        activeOAuthHandler = null;
         manager.googleLoginCancel();
         await (0, proxy_1.stopProxy)();
     };
@@ -127,6 +140,16 @@ async function startStandaloneService(options) {
         res.end(JSON.stringify(value));
     };
     const handleManagement = (req, res) => {
+        const urlPath = (req.url || '').split('?')[0];
+        if (urlPath === '/oauth-callback' || urlPath === '/oauth2callback') {
+            if (activeOAuthHandler) {
+                activeOAuthHandler(req, res);
+                return true;
+            }
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+            res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Logowanie zakończone</title><style>body{font-family:sans-serif;background:#18181b;color:#f4f4f5;text-align:center;padding:40px 16px}.card{max-width:440px;margin:0 auto;background:#27272a;padding:28px;border-radius:12px;border:1px solid #3f3f46}.btn{display:inline-block;margin-top:20px;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600}</style></head><body><div class="card"><h2>Sesja logowania Google</h2><p>Brak aktywnego żądania autoryzacji lub autoryzacja wygasła.</p><a class="btn" href="http://127.0.0.1:${options.port}/_addon/">Wróć do konfiguracji (http://127.0.0.1:${options.port}/_addon/)</a></div><script>setTimeout(function(){window.location.href='http://127.0.0.1:${options.port}/_addon/';},2000);</script></body></html>`);
+            return true;
+        }
         // startProxy guards every route (including generation) before this handler.
         if (!(req.url || '').startsWith('/_addon'))
             return false;

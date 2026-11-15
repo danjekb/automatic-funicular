@@ -685,10 +685,45 @@ window.addEventListener('DOMContentLoaded', () => {
     async function connectFleetAccount(modelName, replaceAccountId) {
         const { body, status, close } = openModal(replaceAccountId ? 'Reconnect Google account' : 'Add Google account');
         body.append(element('p', 'agy-muted', `Complete Google sign-in in your browser. The account is saved to ${modelName}.`));
-        cancelModalOperation = () => { void electron_1.ipcRenderer.invoke('storage:google-login-cancel'); };
+        let active = true;
+        cancelModalOperation = () => {
+            active = false;
+            void electron_1.ipcRenderer.invoke('storage:google-login-cancel');
+        };
         setStatus(status, 'Waiting for Google sign-in…');
+        const pollAuth = setInterval(async () => {
+            if (!active || !body.isConnected) {
+                clearInterval(pollAuth);
+                return;
+            }
+            try {
+                const info = await electron_1.ipcRenderer.invoke('storage:google-auth-url');
+                if (info && info.url && !body.querySelector('.agy-google-auth-link')) {
+                    clearInterval(pollAuth);
+                    const linkBox = element('div', 'agy-auth-box');
+                    linkBox.style.marginTop = '12px';
+                    linkBox.style.marginBottom = '6px';
+                    const a = element('a', 'agy-btn agy-primary agy-google-auth-link', '👉 Kliknij tutaj, aby otworzyć logowanie Google');
+                    a.href = info.url;
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    a.style.display = 'inline-block';
+                    a.style.textDecoration = 'none';
+                    a.style.padding = '10px 18px';
+                    a.style.borderRadius = '8px';
+                    a.style.fontWeight = 'bold';
+                    a.style.fontSize = '14px';
+                    a.style.background = '#1a73e8';
+                    a.style.color = '#ffffff';
+                    linkBox.append(a);
+                    body.append(linkBox);
+                }
+            } catch {}
+        }, 300);
         try {
             const result = await electron_1.ipcRenderer.invoke('storage:google-login', { authMode: 'antigravity' });
+            active = false;
+            clearInterval(pollAuth);
             if (!body.isConnected)
                 return;
             requireSuccess(result);
@@ -701,6 +736,8 @@ window.addEventListener('DOMContentLoaded', () => {
             await modelsChanged();
         }
         catch (error) {
+            active = false;
+            clearInterval(pollAuth);
             if (body.isConnected)
                 setStatus(status, error instanceof Error ? error.message : String(error), true);
         }

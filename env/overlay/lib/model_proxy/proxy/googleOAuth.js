@@ -259,12 +259,24 @@ async function loginGoogleAccount(options, openExternal, dependencies = {}) {
         let finished = false, exchanging = false;
         let redirectUri = '';
         let timer;
+        let server;
+        let unregisterCallback;
         const cleanup = () => {
             clearTimeout(timer);
             options.signal?.removeEventListener('abort', onAbort);
             tokenController.abort();
-            server.close();
-            server.closeIdleConnections();
+            if (unregisterCallback) {
+                try { unregisterCallback(); } catch {}
+                unregisterCallback = undefined;
+            }
+            if (server) {
+                try {
+                    setTimeout(() => {
+                        server?.close();
+                        server?.closeIdleConnections();
+                    }, 5000);
+                } catch {}
+            }
         };
         const finish = (error, account) => {
             if (finished)
@@ -277,7 +289,7 @@ async function loginGoogleAccount(options, openExternal, dependencies = {}) {
                 resolve(account);
         };
         const onAbort = () => finish(cancellation());
-        const server = http.createServer((req, res) => {
+        const handleRequest = (req, res) => {
             const reply = (status, text) => {
                 const isHtml = status === 200;
                 res.writeHead(status, {
@@ -398,26 +410,10 @@ async function loginGoogleAccount(options, openExternal, dependencies = {}) {
                 reply(502, 'Login could not be completed. Return to the application for details.');
                 finish(error instanceof Error ? error : new Error('Google login failed'));
             });
-        });
-        server.headersTimeout = 10000;
-        server.requestTimeout = 10000;
-        server.keepAliveTimeout = 1000;
-        server.maxConnections = 8;
-        server.on('connection', (socket) => socket.setTimeout(10000, () => socket.destroy()));
-        server.on('error', () => finish(new Error('Could not open the local Google login callback')));
-        options.signal?.addEventListener('abort', onAbort, { once: true });
-        timer = setTimeout(() => finish(cancellation('Google login timed out. Start login again.')), timeoutMs);
-        server.listen(0, '127.0.0.1', () => {
-            if (finished) {
-                server.close();
-                return;
-            }
-            const address = server.address();
-            if (!address || typeof address === 'string') {
-                finish(new Error('Google login callback did not start'));
-                return;
-            }
-            redirectUri = `http://${callbackHost}:${address.port}${callbackPath}`;
+        };
+
+        const startFlow = (port) => {
+            redirectUri = `http://${callbackHost}:${port}${callbackPath}`;
             const authorization = new URL(exports.GOOGLE_AUTHORIZATION_URL);
             authorization.search = new URLSearchParams({
                 client_id: clientId,
@@ -433,7 +429,36 @@ async function loginGoogleAccount(options, openExternal, dependencies = {}) {
             void Promise.resolve()
                 .then(() => openExternal(authorization.toString()))
                 .catch(() => finish(new Error('Could not open the browser for Google login')));
-        });
+        };
+
+        options.signal?.addEventListener('abort', onAbort, { once: true });
+        timer = setTimeout(() => finish(cancellation('Google login timed out. Start login again.')), timeoutMs);
+
+        if (typeof dependencies.registerCallback === 'function') {
+            const port = dependencies.callbackPort || 50996;
+            unregisterCallback = dependencies.registerCallback(handleRequest);
+            startFlow(port);
+        } else {
+            server = http.createServer(handleRequest);
+            server.headersTimeout = 10000;
+            server.requestTimeout = 10000;
+            server.keepAliveTimeout = 1000;
+            server.maxConnections = 8;
+            server.on('connection', (socket) => socket.setTimeout(10000, () => socket.destroy()));
+            server.on('error', () => finish(new Error('Could not open the local Google login callback')));
+            server.listen(0, '127.0.0.1', () => {
+                if (finished) {
+                    server?.close();
+                    return;
+                }
+                const address = server?.address();
+                if (!address || typeof address === 'string') {
+                    finish(new Error('Google login callback did not start'));
+                    return;
+                }
+                startFlow(address.port);
+            });
+        }
     });
 }
 //# sourceMappingURL=googleOAuth.js.map
