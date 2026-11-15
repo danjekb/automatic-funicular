@@ -106,6 +106,12 @@ public final class CoreServerService extends Service {
             File tmpDir = new File(getFilesDir(), "usr/tmp");
             tmpDir.mkdirs();
 
+            try {
+                dev.singularity.antigravity.util.AssetUnpacker.copyTree(getAssets(), "env/overlay/lib/model_proxy", new File(getFilesDir(), "usr/lib/model_proxy"));
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to sync model_proxy from assets: " + e.getMessage());
+            }
+
             // Wait for env extraction and package seeding if starting on a clean install
             for (int i = 0; i < 60 && !destroyed && modelProxyEnabled; i++) {
                 if (findNodeExecutable() != null && findProxyEntry() != null) {
