@@ -93,12 +93,26 @@ async function startStandaloneService(options) {
     if (!/^[a-f0-9]{64}$/.test(options.token) || !/^[a-f0-9-]{36}$/.test(options.instance))
         throw new Error('Invalid service identity');
     codec.configureCredentialDirectory(options.dataDirectory);
-    const manager = (0, modelManagement_1.createModelManager)(options.dataDirectory, codec, browserLauncher_1.openBrowser);
+    let currentAuthUrl = '';
+    const openExternal = async (url) => {
+        currentAuthUrl = url;
+        return (0, browserLauncher_1.openBrowser)(url);
+    };
+    const manager = (0, modelManagement_1.createModelManager)(options.dataDirectory, codec, openExternal);
     const stop = async () => {
+        currentAuthUrl = '';
         manager.googleLoginCancel();
         await (0, proxy_1.stopProxy)();
     };
-    const actions = (0, modelActions_1.createModelActions)(manager);
+    const baseActions = (0, modelActions_1.createModelActions)(manager);
+    const actions = {
+        ...baseActions,
+        'storage:google-auth-url': () => ({ url: currentAuthUrl }),
+        'storage:google-login-cancel': () => {
+            currentAuthUrl = '';
+            return baseActions['storage:google-login-cancel']();
+        },
+    };
     const handleDelegation = (0, modelDelegation_1.createModelDelegation)(proxy_1.loadCustomModels);
     // "proxy:start -- --open" puts this on the browser command line instead of the token.
     let handoff;

@@ -8,17 +8,26 @@ async function openBrowser(value) {
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
         throw new Error('Invalid browser URL');
 
-    // Notify Android CoreProcessSupervisor and OpenUrlWatcher via stream
+    // Notify Android CoreProcessSupervisor and OpenUrlWatcher via stdout
     console.log(`ANTIGRAVITY_OPEN_URL: ${url.href}`);
     console.log(`AGY_OPEN_URL=${url.href}`);
 
-    // Direct launch on Android via su / am / intent
+    // Direct launch on Android using spawn with su or /system/bin/sh without relying on non-existent /bin/sh
     if (process.platform === 'linux') {
         try {
-            (0, node_child_process_1.exec)(`su -c "/system/bin/am start -a android.intent.action.VIEW -d '${url.href}'" 2>/dev/null || /system/bin/am broadcast -a dev.singularity.antigravity.ACTION_OPEN_URL -p dev.singularity.antigravity --es url '${url.href}' 2>/dev/null || xdg-open '${url.href}' 2>/dev/null`, { timeout: 3000 });
+            const suChild = (0, node_child_process_1.spawn)('su', ['-c', `/system/bin/am start -a android.intent.action.VIEW -d "${url.href}"`], { detached: true, stdio: 'ignore' });
+            suChild.unref();
             return;
         } catch {
-            // fallback to spawn
+            // fallback
+        }
+
+        try {
+            const shChild = (0, node_child_process_1.spawn)('/system/bin/sh', ['-c', `/system/bin/am broadcast -a dev.singularity.antigravity.ACTION_OPEN_URL -p dev.singularity.antigravity --es url "${url.href}"`], { detached: true, stdio: 'ignore' });
+            shChild.unref();
+            return;
+        } catch {
+            // fallback
         }
     }
 

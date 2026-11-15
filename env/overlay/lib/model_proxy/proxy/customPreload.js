@@ -430,6 +430,35 @@ window.addEventListener('DOMContentLoaded', () => {
             setStatus(status, authMode === 'antigravity'
                 ? 'Complete consent in your browser, then wait for account preparation. Browser login expires after two minutes.'
                 : 'Complete consent in your browser. This login expires after two minutes.');
+            const pollAuth = setInterval(async () => {
+                if (!accountOperationPending || accountOperationAttempt !== attempt) {
+                    clearInterval(pollAuth);
+                    return;
+                }
+                try {
+                    const info = await electron_1.ipcRenderer.invoke('storage:google-auth-url');
+                    if (info && info.url && !status.querySelector('.agy-google-auth-link')) {
+                        clearInterval(pollAuth);
+                        const linkBox = element('div', 'agy-auth-box');
+                        linkBox.style.marginTop = '12px';
+                        linkBox.style.marginBottom = '6px';
+                        const a = element('a', 'agy-btn agy-primary agy-google-auth-link', '👉 Kliknij tutaj, aby otworzyć logowanie Google');
+                        a.href = info.url;
+                        a.target = '_blank';
+                        a.rel = 'noopener noreferrer';
+                        a.style.display = 'inline-block';
+                        a.style.textDecoration = 'none';
+                        a.style.padding = '10px 18px';
+                        a.style.borderRadius = '8px';
+                        a.style.fontWeight = 'bold';
+                        a.style.fontSize = '14px';
+                        a.style.background = '#1a73e8';
+                        a.style.color = '#ffffff';
+                        linkBox.append(a);
+                        status.append(linkBox);
+                    }
+                } catch {}
+            }, 300);
             try {
                 const result = await electron_1.ipcRenderer.invoke('storage:google-login', {
                     authMode,
@@ -448,6 +477,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 setStatus(status, 'Account authorized. Save the model within 10 minutes to retain it; otherwise sign in again. Use Test account to check service access and quota, then Test generation to verify a model response.');
             }
             finally {
+                clearInterval(pollAuth);
                 accountOperationPending = false;
                 for (const input of [loginMode, loginLabel, loginClient, loginSecret])
                     input.disabled = false;
