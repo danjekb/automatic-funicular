@@ -133,33 +133,52 @@ public final class CoreServerService extends Service {
 
                 try {
                     Log.i(TAG, "Starting local model adapter proxy on port 50996...");
-                    java.util.List<String> cmd = new java.util.ArrayList<>();
-                    cmd.add(nodeExe.getAbsolutePath());
-                    cmd.add(proxyEntry.getAbsolutePath());
-                    cmd.add("--port");
-                    cmd.add("50996");
-                    cmd.add("--data-dir");
-                    cmd.add(dataDir.getAbsolutePath());
-                    cmd.add("--log-file");
-                    cmd.add(logFile.getAbsolutePath());
+                    dev.singularity.antigravity.shell.RootBridge rootBridge =
+                            new dev.singularity.antigravity.shell.RootBridge(CoreServerService.this);
+                    boolean hasSu = rootBridge.isAvailable();
 
-                    ProcessBuilder pb = new ProcessBuilder(cmd);
+                    ProcessBuilder pb;
+                    if (hasSu) {
+                        String proxyCmd = "export HOME='" + getFilesDir().getAbsolutePath() + "' && " +
+                                "export PREFIX='" + prefixDir.getAbsolutePath() + "' && " +
+                                "export LD_LIBRARY_PATH='" + prefixDir.getAbsolutePath() + "/lib' && " +
+                                "export OPENSSL_CONF='" + prefixDir.getAbsolutePath() + "/etc/tls/openssl.cnf' && " +
+                                "export SSL_CERT_FILE='" + prefixDir.getAbsolutePath() + "/etc/tls/cert.pem' && " +
+                                "export CURL_CA_BUNDLE='" + prefixDir.getAbsolutePath() + "/etc/tls/cert.pem' && " +
+                                "exec '" + prefixDir.getAbsolutePath() + "/bin/node' '" + proxyEntry.getAbsolutePath() + "' " +
+                                "--port 50996 --data-dir '" + dataDir.getAbsolutePath() + "' --log-file '" + logFile.getAbsolutePath() + "'";
+
+                        pb = new ProcessBuilder("/system/bin/su", "-c", proxyCmd);
+                        pb.environment().remove("LD_LIBRARY_PATH");
+                    } else {
+                        java.util.List<String> cmd = new java.util.ArrayList<>();
+                        cmd.add(nodeExe.getAbsolutePath());
+                        cmd.add(proxyEntry.getAbsolutePath());
+                        cmd.add("--port");
+                        cmd.add("50996");
+                        cmd.add("--data-dir");
+                        cmd.add(dataDir.getAbsolutePath());
+                        cmd.add("--log-file");
+                        cmd.add(logFile.getAbsolutePath());
+
+                        pb = new ProcessBuilder(cmd);
+                        pb.environment().put("PREFIX", prefixDir.getAbsolutePath());
+                        pb.environment().put("PATH", prefixDir.getAbsolutePath() + "/bin:" + System.getenv("PATH"));
+                        pb.environment().put("HOME", getFilesDir().getAbsolutePath());
+                        pb.environment().put("TMPDIR", tmpDir.getAbsolutePath());
+                        pb.environment().put("TEMP", tmpDir.getAbsolutePath());
+                        pb.environment().put("TMP", tmpDir.getAbsolutePath());
+                        pb.environment().put("LD_LIBRARY_PATH", prefixDir.getAbsolutePath() + "/lib");
+                        File opensslCnf = new File(prefixDir, "etc/tls/openssl.cnf");
+                        if (opensslCnf.isFile()) {
+                            pb.environment().put("OPENSSL_CONF", opensslCnf.getAbsolutePath());
+                        }
+                        File certPem = new File(prefixDir, "etc/tls/cert.pem");
+                        if (certPem.isFile()) {
+                            pb.environment().put("SSL_CERT_FILE", certPem.getAbsolutePath());
+                        }
+                    }
                     pb.directory(getFilesDir());
-                    pb.environment().put("PREFIX", prefixDir.getAbsolutePath());
-                    pb.environment().put("PATH", prefixDir.getAbsolutePath() + "/bin:" + System.getenv("PATH"));
-                    pb.environment().put("HOME", getFilesDir().getAbsolutePath());
-                    pb.environment().put("TMPDIR", tmpDir.getAbsolutePath());
-                    pb.environment().put("TEMP", tmpDir.getAbsolutePath());
-                    pb.environment().put("TMP", tmpDir.getAbsolutePath());
-                    pb.environment().put("LD_LIBRARY_PATH", prefixDir.getAbsolutePath() + "/lib");
-                    File opensslCnf = new File(prefixDir, "etc/tls/openssl.cnf");
-                    if (opensslCnf.isFile()) {
-                        pb.environment().put("OPENSSL_CONF", opensslCnf.getAbsolutePath());
-                    }
-                    File certPem = new File(prefixDir, "etc/tls/cert.pem");
-                    if (certPem.isFile()) {
-                        pb.environment().put("SSL_CERT_FILE", certPem.getAbsolutePath());
-                    }
 
                     Process p = pb.start();
                     modelProxyProcess = p;
@@ -196,10 +215,14 @@ public final class CoreServerService extends Service {
                 File daemonBin = new File(getFilesDir(), "usr/bin/agy-daemon");
                 if (daemonBin.canExecute()) {
                     Log.i(TAG, "Starting autonomous background daemon...");
-                    ProcessBuilder pb = new ProcessBuilder(daemonBin.getAbsolutePath(), "start");
+                    String daemonCmd = "export HOME='" + getFilesDir().getAbsolutePath() + "' && " +
+                            "export PREFIX='" + getFilesDir().getAbsolutePath() + "/usr' && " +
+                            "export PATH='" + getFilesDir().getAbsolutePath() + "/usr/bin:/system/bin' && " +
+                            "export LD_LIBRARY_PATH='" + getFilesDir().getAbsolutePath() + "/usr/lib' && " +
+                            "exec '" + daemonBin.getAbsolutePath() + "' start";
+                    ProcessBuilder pb = new ProcessBuilder("/system/bin/su", "-c", daemonCmd);
                     pb.directory(getFilesDir());
-                    pb.environment().put("PATH", getFilesDir().getAbsolutePath() + "/usr/bin:" + System.getenv("PATH"));
-                    pb.environment().put("HOME", getFilesDir().getAbsolutePath());
+                    pb.environment().remove("LD_LIBRARY_PATH");
                     pb.start();
                 }
             } catch (Exception e) {
@@ -274,7 +297,14 @@ public final class CoreServerService extends Service {
                 int pid = obj.optInt("pid", 0);
                 if (pid > 0) {
                     Log.i(TAG, "Terminating model proxy PID " + pid);
-                    android.os.Process.sendSignal(pid, 15);
+                    try {
+                        android.os.Process.sendSignal(pid, 15);
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        new dev.singularity.antigravity.shell.RootBridge(this).exec("kill -15 " + pid);
+                    } catch (Exception ignored) {
+                    }
                 }
             }
         } catch (Exception ignored) {

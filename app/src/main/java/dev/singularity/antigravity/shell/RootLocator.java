@@ -21,16 +21,13 @@ public final class RootLocator {
                 new File("/sbin/su"),
                 new File("/system/sbin/su"),
                 new File("/data/adb/ksu/bin/su"),
-                new File("/data/adb/ap/bin/su"),
-                new File(files, "usr/bin/su"),
-                new File(files, "runtime/bin/su"),
-                new File(files, "bin/su")
+                new File("/data/adb/ap/bin/su")
         };
         for (File candidate : candidates) {
             if (candidate.exists() && candidate.canExecute()) {
                 return candidate;
             }
         }
-        return candidates[0];
+        return new File("su");
     }
 }
