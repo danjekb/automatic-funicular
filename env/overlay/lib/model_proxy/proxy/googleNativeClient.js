@@ -35,7 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GOOGLE_NATIVE_SCOPES = void 0;
 exports.resolveGoogleNativeClient = resolveGoogleNativeClient;
-/** Read a public desktop OAuth profile from a recognized local vendor installation; never execute its code. */
+/** Read a public desktop OAuth profile from liblanguage_server.so or recognized local vendor installation. */
 const fs = __importStar(require("node:fs"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
@@ -51,6 +51,55 @@ exports.GOOGLE_NATIVE_SCOPES = [
 const UNAVAILABLE = 'A supported Antigravity IDE installation (2.5.5) is required for Antigravity sign-in. ' +
     'For a portable installation, set ANTIGRAVITY_IDE_RESOURCES to its resources directory and restart the service, ' +
     'or use Custom Desktop OAuth.';
+
+function extractOAuthFromLibrary(filePath) {
+    if (!filePath) return null;
+    try {
+        if (!fs.existsSync(filePath)) return null;
+        let fd;
+        try {
+            fd = fs.openSync(filePath, 'r');
+            const stat = fs.fstatSync(fd);
+            const CHUNK_SIZE = 4 * 1024 * 1024;
+            const chunk = Buffer.alloc(CHUNK_SIZE);
+            let offset = 0;
+            let clientId = null;
+            let clientSecret = null;
+            while (offset < stat.size) {
+                const bytesRead = fs.readSync(fd, chunk, 0, CHUNK_SIZE, offset);
+                if (bytesRead <= 0) break;
+                const str = chunk.toString('latin1', 0, bytesRead);
+                if (!clientId) {
+                    const idMatches = str.match(/([0-9]{12,}-[a-z0-9]+\.apps\.googleusercontent\.com)/g);
+                    if (idMatches && idMatches.length > 0) {
+                        clientId = idMatches.find(id => id.startsWith('1071006060591')) || idMatches[0];
+                    }
+                }
+                if (!clientSecret) {
+                    const secMatches = str.match(/(GOCSPX-[A-Za-z0-9_-]{28})/g);
+                    if (secMatches && secMatches.length > 0) {
+                        clientSecret = secMatches[0];
+                    }
+                }
+                if (clientId && clientSecret) break;
+                offset += bytesRead - 512;
+            }
+            if (clientId) {
+                return {
+                    clientId,
+                    clientSecret: clientSecret || '',
+                    scopes: exports.GOOGLE_NATIVE_SCOPES,
+                };
+            }
+        } finally {
+            if (fd !== undefined) {
+                try { fs.closeSync(fd); } catch {}
+            }
+        }
+    } catch {}
+    return null;
+}
+
 function readFile(filename, maximum) {
     const resolved = path.resolve(filename);
     let current = path.parse(resolved).root;
@@ -73,6 +122,7 @@ function readFile(filename, maximum) {
         fs.closeSync(handle);
     }
 }
+
 function inspect(app) {
     const pkg = JSON.parse(readFile(path.join(app, 'package.json'), 256 * 1024));
     const product = JSON.parse(readFile(path.join(app, 'product.json'), 1024 * 1024));
@@ -108,8 +158,6 @@ function inspect(app) {
         clientSecret.length > 2048 ||
         new Set([personalId, personalSecret, gcpId, gcpSecret, scopeVariable]).size !== 5)
         throw new Error(UNAVAILABLE);
-    // Confirm that the first pair is actually selected by the personal-account branch.
-    // Unknown vendor layouts fail closed rather than guessing which OAuth identity to use.
     const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const selection = `${escape(gcpId)}:${escape(personalId)},[\\w$]+=[\\w$]+\\?${escape(gcpSecret)}:${escape(personalSecret)}`;
     if (!new RegExp(`getLoginUrl\\([\\w$]+\\)\\{[^}]{0,500}${selection}`).test(source) ||
@@ -120,12 +168,35 @@ function inspect(app) {
         throw new Error(UNAVAILABLE);
     return { clientId, clientSecret, scopes: scopes };
 }
+
 function resolveGoogleNativeClient(options = {}) {
     const env = options.env || process.env;
     const platform = options.platform || process.platform;
     const home = options.home || os.homedir();
     const explicit = options.resources || env.ANTIGRAVITY_IDE_RESOURCES;
     const runtime = options.runtimeResources ?? process.resourcesPath;
+
+    // 1. Try reading directly from liblanguage_server.so (Android runtime & build assets)
+    const candidateLibs = [
+        options.liblanguageServerPath,
+        env.LIBLANGUAGE_SERVER_PATH,
+        path.join(home, 'runtime/bin/liblanguage_server.so'),
+        path.join(process.env.HOME || '', 'runtime/bin/liblanguage_server.so'),
+        '/data/user/0/dev.singularity.antigravity/files/runtime/bin/liblanguage_server.so',
+        '/data/user/0/com.agy.dev/files/runtime/bin/liblanguage_server.so',
+        '/data/user/0/com.agy/files/runtime/bin/liblanguage_server.so',
+        path.resolve(__dirname, '../../../../runtime/bin/liblanguage_server.so'),
+        path.resolve(__dirname, '../../../../../build/staging/assets/runtime/bin/liblanguage_server.so'),
+    ].filter(Boolean);
+
+    for (const libPath of candidateLibs) {
+        const result = extractOAuthFromLibrary(libPath);
+        if (result) {
+            return result;
+        }
+    }
+
+    // 2. Try desktop Electron installation paths if present
     const roots = explicit
         ? [path.resolve(explicit)]
         : [
@@ -168,6 +239,7 @@ function resolveGoogleNativeClient(options = {}) {
             }
         }
     }
+
     throw new Error(UNAVAILABLE);
 }
 //# sourceMappingURL=googleNativeClient.js.map

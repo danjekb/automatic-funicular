@@ -139,6 +139,8 @@ public final class CoreServerService extends Service {
                     cmd.add("export PREFIX=\"" + prefixDir.getAbsolutePath() + "\" && " +
                             "export LD_LIBRARY_PATH=\"" + prefixDir.getAbsolutePath() + "/lib\" && " +
                             "export PATH=\"" + prefixDir.getAbsolutePath() + "/bin:$PATH\" && " +
+                            "export OPENSSL_CONF=\"" + prefixDir.getAbsolutePath() + "/etc/tls/openssl.cnf\" && " +
+                            "export SSL_CERT_FILE=\"" + prefixDir.getAbsolutePath() + "/etc/tls/cert.pem\" && " +
                             "exec \"" + nodeExe.getAbsolutePath() + "\" \"" + proxyEntry.getAbsolutePath() + "\" " +
                             "--port 50996 --data-dir \"" + dataDir.getAbsolutePath() + "\" --log-file \"" + logFile.getAbsolutePath() + "\"");
 

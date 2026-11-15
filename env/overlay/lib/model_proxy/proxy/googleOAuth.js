@@ -238,8 +238,8 @@ async function loginGoogleAccount(options, openExternal, dependencies = {}) {
     const native = options.authMode === 'antigravity' ? (dependencies.resolveNativeClient || googleNativeClient_1.resolveGoogleNativeClient)() : undefined;
     const clientId = (native?.clientId ?? options.clientId)?.trim();
     const clientSecret = (native?.clientSecret ?? options.clientSecret)?.trim();
-    // Match the recognized vendor client's registered callback while listening only on IPv4 loopback.
-    const callbackHost = native ? 'localhost' : '127.0.0.1';
+    // Match the recognized vendor client's registered callback while listening only on IPv4 loopback (always 127.0.0.1 IP on Android).
+    const callbackHost = '127.0.0.1';
     const callbackPath = native ? '/oauth-callback' : '/oauth2callback';
     if (!clientId || !/^[A-Za-z0-9_.-]+\.apps\.googleusercontent\.com$/.test(clientId) || clientId.length > 512) {
         throw new Error('Enter your Google Desktop OAuth client ID (.apps.googleusercontent.com).');
@@ -305,9 +305,13 @@ async function loginGoogleAccount(options, openExternal, dependencies = {}) {
                 return;
             }
             const expected = new URL(redirectUri);
-            if (req.headers.host !== expected.host ||
-                callback.origin !== expected.origin ||
-                callback.pathname !== callbackPath) {
+            const hostHeader = req.headers.host || '';
+            const isLoopbackHost = hostHeader === expected.host ||
+                hostHeader.startsWith('127.0.0.1:') ||
+                hostHeader.startsWith('localhost:') ||
+                hostHeader === '127.0.0.1' ||
+                hostHeader === 'localhost';
+            if (!isLoopbackHost || callback.pathname !== callbackPath) {
                 reply(404, 'Not found.');
                 return;
             }
