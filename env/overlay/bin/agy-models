@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
-agy-models - Antigravity Model Manager CLI (supports DeepSeek, OpenAI, Claude, fjut, and local models)
+agy-models - Antigravity Model Manager CLI (supports DeepSeek, OpenAI, Claude, OpenCode Zen, and local models)
 
 Usage:
-  agy-models list                     # List all providers and models
-  agy-models status                   # Check local model adapter gateway status
-  agy-models set-key <provider> <key> # Set API key (e.g. agy-models set-key deepseek sk-xxxx)
-  agy-models set-url <provider> <url> # Set base API URL (e.g. agy-models set-url custom http://127.0.0.1:11434/v1)
-  agy-models enable <provider>        # Enable a provider
-  agy-models disable <provider>       # Disable a provider
+  agy-models list                         # List all providers and models
+  agy-models status                       # Check local model adapter gateway status
+  agy-models sync-zen [--key <zen_key>]   # Discover & sync OpenCode Zen v2 free models with fallback chains
+  agy-models set-key <provider> <key>     # Set API key (e.g. agy-models set-key deepseek sk-xxxx)
+  agy-models set-url <provider> <url>     # Set base API URL (e.g. agy-models set-url custom http://127.0.0.1:11434/v1)
+  agy-models enable <provider>            # Enable a provider
+  agy-models disable <provider>           # Disable a provider
 """
 
 import sys
 import os
+import re
 import json
 import urllib.request
 import urllib.error
@@ -21,12 +23,49 @@ HOME = os.environ.get("HOME", os.path.expanduser("~"))
 CONFIG_PATH = os.path.join(HOME, ".gemini", "antigravity-app", "custom_models.json")
 if not os.path.isfile(CONFIG_PATH) and os.path.isfile(os.path.join(HOME, ".gemini", "antigravity", "custom_models.json")):
     CONFIG_PATH = os.path.join(HOME, ".gemini", "antigravity", "custom_models.json")
-GATEWAY_URL = "http://127.0.0.1:50996"
+
+STATE_FILE = os.path.join(HOME, ".gemini", "antigravity-app", ".ide-proxy", "state.json")
+
+ZEN_UPSTREAM_URL = "https://opencode.ai/inference/openai/v1/chat/completions"
+ZEN_MODELS_URL = "https://opencode.ai/inference/v1/models"
+ZEN_UA = "opencode/latest/2.1.4/cli"
+VALID_MODEL_RE = re.compile(r"^[A-Za-z0-9._:@+/%-]+$")
+NOT_SERVABLE_RE = re.compile(r"^jev-")
+
+BAKED_ZEN_MODELS = [
+    "mimo-v2.6-flash-free",
+    "big-pickle",
+    "nemotron-3.5-lightning-free",
+    "deepseek-v4.1-flash-free",
+    "nemotron-3.5-super-vl-free",
+    "glm-5.3-flash-free",
+    "beam-free",
+    "flint-40b-free",
+    "iceman-free",
+    "inkling-2-small-free",
+    "longcat-2.5-free",
+    "minimax-m3.1-flash-free",
+    "hy4-flash-free",
+]
+
+
+def get_gateway_url():
+    if os.path.isfile(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                sdata = json.load(f)
+                port = sdata.get("port")
+                if port:
+                    return f"http://127.0.0.1:{port}"
+        except Exception:
+            pass
+    return "http://127.0.0.1:50996"
+
 
 def load_config():
     if not os.path.isfile(CONFIG_PATH):
-        print(f"[!] Configuration file not found. Please start gateway once or initialize.")
-        sys.exit(1)
+        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+        return {"models": []}
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -34,14 +73,90 @@ def load_config():
         print(f"[ERROR] Failed to read configuration: {e}", file=sys.stderr)
         sys.exit(1)
 
+
 def save_config(cfg):
     try:
+        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
         print(f"[OK] Configuration successfully saved to: {CONFIG_PATH}")
     except Exception as e:
         print(f"[ERROR] Failed to save configuration: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def fetch_zen_free_models():
+    req = urllib.request.Request(ZEN_MODELS_URL, headers={"User-Agent": ZEN_UA})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            items = data.get("data", [])
+            ids = []
+            for item in items:
+                mid = item.get("id", "")
+                if (
+                    isinstance(mid, str)
+                    and VALID_MODEL_RE.match(mid)
+                    and not NOT_SERVABLE_RE.match(mid)
+                    and (mid.endswith("-free") or mid == "big-pickle")
+                ):
+                    ids.append(mid)
+            if ids:
+                return ids
+    except Exception as e:
+        print(f"[!] Live Zen catalog fetch fallback ({e}); using shipped catalog.")
+    return list(BAKED_ZEN_MODELS)
+
+
+def cmd_sync_zen(zen_key=""):
+    cfg = load_config()
+    models = cfg.get("models", [])
+    free_ids = fetch_zen_free_models()
+    print(f"[*] Discovered {len(free_ids)} OpenCode Zen v2 free models: {', '.join(free_ids)}")
+
+    zen_names = [f"models/custom/zen/{mid}" for mid in free_ids]
+    existing_by_name = {m.get("name"): m for m in models if isinstance(m, dict) and m.get("name")}
+
+    added = 0
+    updated = 0
+    for idx, mid in enumerate(free_ids):
+        full_name = f"models/custom/zen/{mid}"
+        fallbacks = [n for n in zen_names if n != full_name]
+        entry = existing_by_name.get(full_name)
+        if entry:
+            entry["provider"] = "zen"
+            entry["apiUrl"] = ZEN_UPSTREAM_URL
+            entry["apiFormat"] = "openai"
+            entry["externalModelName"] = mid
+            entry["displayName"] = f"zen/{mid}"
+            entry["fallbackModels"] = fallbacks
+            if zen_key:
+                entry["apiKey"] = zen_key
+            updated += 1
+        else:
+            models.append(
+                {
+                    "provider": "zen",
+                    "apiUrl": ZEN_UPSTREAM_URL,
+                    "apiKey": zen_key,
+                    "apiFormat": "openai",
+                    "name": full_name,
+                    "allowUnauthorized": False,
+                    "externalModelName": mid,
+                    "rawUrl": False,
+                    "displayName": f"zen/{mid}",
+                    "description": "OpenCode Zen v2 Free Model (native zen-engine)",
+                    "enabled": True,
+                    "fallbackModels": fallbacks,
+                    "encrypted": False,
+                }
+            )
+            added += 1
+
+    cfg["models"] = models
+    save_config(cfg)
+    print(f"[OK] OpenCode Zen sync complete: {added} added, {updated} updated.")
+
 
 def cmd_list():
     cfg = load_config()
@@ -63,10 +178,12 @@ def cmd_list():
             print(f"  [{status}] {p_info.get('name', p_id)} ({p_id}) - {has_key}")
     print("\n===============================================================\n")
 
+
 def cmd_status():
-    print(f"[*] Probing local model adapter gateway ({GATEWAY_URL})...")
+    gw = get_gateway_url()
+    print(f"[*] Probing local model adapter gateway ({gw})...")
     try:
-        with urllib.request.urlopen(f"{GATEWAY_URL}/health", timeout=3) as resp:
+        with urllib.request.urlopen(f"{gw}/health", timeout=3) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             print("🟢 Gateway is running!")
             print(f"  Listening port: {data.get('port', 50996)}")
@@ -82,9 +199,8 @@ def cmd_status():
                         print(f"    {status} {m.get('displayName', m.get('name'))}")
             except Exception:
                 pass
-        state_file = os.path.join(HOME, ".gemini", "antigravity-app", ".ide-proxy", "state.json")
-        if os.path.isfile(state_file):
-            with open(state_file, "r", encoding="utf-8") as f:
+        if os.path.isfile(STATE_FILE):
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
                 sdata = json.load(f)
                 murl = sdata.get("managementUrl")
                 if murl:
@@ -93,38 +209,64 @@ def cmd_status():
         print(f"🔴 Gateway not running or unreachable: {e}")
         print("  Note: Ensure Antigravity core service or model adapter daemon is active.")
 
+
 def cmd_set_key(provider_id, key):
     cfg = load_config()
     providers = cfg.get("providers", {})
-    if provider_id not in providers:
-        print(f"[ERROR] Unknown provider: '{provider_id}'. Available: {', '.join(providers.keys())}", file=sys.stderr)
+    if provider_id in providers:
+        providers[provider_id]["api_key"] = key.strip()
+        providers[provider_id]["enabled"] = True
+    models = cfg.get("models", [])
+    matched_models = 0
+    for m in models:
+        if m.get("provider") == provider_id:
+            m["apiKey"] = key.strip()
+            m["encrypted"] = False
+            matched_models += 1
+    if provider_id not in providers and matched_models == 0:
+        print(f"[ERROR] Unknown provider: '{provider_id}'.", file=sys.stderr)
         sys.exit(1)
-    providers[provider_id]["api_key"] = key.strip()
-    providers[provider_id]["enabled"] = True
     save_config(cfg)
     masked_key = key[:6] + "..." + key[-4:] if len(key) > 10 else "***"
-    print(f"[OK] Configured API key ({masked_key}) and enabled provider '{provider_id}'!")
+    print(f"[OK] Configured API key ({masked_key}) for provider '{provider_id}' ({matched_models} models updated)!")
+
 
 def cmd_set_url(provider_id, url):
     cfg = load_config()
     providers = cfg.get("providers", {})
-    if provider_id not in providers:
-        print(f"[ERROR] Unknown provider: '{provider_id}'. Available: {', '.join(providers.keys())}", file=sys.stderr)
+    if provider_id in providers:
+        providers[provider_id]["base_url"] = url.strip()
+    models = cfg.get("models", [])
+    matched_models = 0
+    for m in models:
+        if m.get("provider") == provider_id:
+            m["apiUrl"] = url.strip()
+            matched_models += 1
+    if provider_id not in providers and matched_models == 0:
+        print(f"[ERROR] Unknown provider: '{provider_id}'.", file=sys.stderr)
         sys.exit(1)
-    providers[provider_id]["base_url"] = url.strip()
     save_config(cfg)
     print(f"[OK] Updated Base URL for provider '{provider_id}' to: {url.strip()}")
+
 
 def cmd_toggle(provider_id, enable):
     cfg = load_config()
     providers = cfg.get("providers", {})
-    if provider_id not in providers:
+    if provider_id in providers:
+        providers[provider_id]["enabled"] = enable
+    models = cfg.get("models", [])
+    matched_models = 0
+    for m in models:
+        if m.get("provider") == provider_id:
+            m["enabled"] = enable
+            matched_models += 1
+    if provider_id not in providers and matched_models == 0:
         print(f"[ERROR] Unknown provider: '{provider_id}'", file=sys.stderr)
         sys.exit(1)
-    providers[provider_id]["enabled"] = enable
     save_config(cfg)
     action = "Enabled" if enable else "Disabled"
-    print(f"[OK] Provider '{provider_id}' is now {action}!")
+    print(f"[OK] Provider '{provider_id}' is now {action} ({matched_models} models)!")
+
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
@@ -136,6 +278,13 @@ def main():
         cmd_list()
     elif cmd == "status":
         cmd_status()
+    elif cmd == "sync-zen":
+        zen_key = ""
+        if "--key" in sys.argv:
+            idx = sys.argv.index("--key")
+            if idx + 1 < len(sys.argv):
+                zen_key = sys.argv[idx + 1].strip()
+        cmd_sync_zen(zen_key)
     elif cmd == "set-key":
         if len(sys.argv) < 4:
             print("[ERROR] Usage: agy-models set-key <provider_id> <api_key>", file=sys.stderr)
@@ -159,6 +308,7 @@ def main():
     else:
         print(f"[ERROR] Unknown subcommand: '{cmd}'. Run agy-models --help for usage.", file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
