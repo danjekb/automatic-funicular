@@ -31,7 +31,7 @@ exports.PROVIDERS = [
     preset('nvidia', 'NVIDIA NIM', 'https://integrate.api.nvidia.com/v1/chat/completions'),
     preset('minimax', 'MiniMax', 'https://api.minimax.io/anthropic/v1/messages', 'anthropic'),
     preset('opencode', 'OpenCode', 'https://opencode.ai/inference/openai/v1/chat/completions', 'openai', false),
-    preset('zen', 'OpenCode Zen', 'https://opencode.ai/inference/openai/v1/chat/completions', 'openai', false),
+    preset('zen', 'OpenCode Zen', 'https://opencode.ai/zen/v1/chat/completions', 'openai', false),
     preset('opencode-go', 'OpenCode Go', 'https://opencode.ai/inference/go/openai/v1/chat/completions'),
     preset('wafer', 'Wafer (custom endpoint)', '', 'anthropic'),
     preset('zai', 'Z.AI', 'https://api.z.ai/api/anthropic/v1/messages', 'anthropic'),
@@ -50,8 +50,9 @@ exports.PROVIDERS = [
 function getProvider(id) {
     return exports.PROVIDERS.find((provider) => provider.id === id);
 }
-// OpenCode v2 CLI User-Agent required by the free-tier inference gateway.
-exports.OPENCODE_USER_AGENT = 'opencode/latest/2.1.4/cli';
+// OpenCode documents free chat requests without Authorization and asks external
+// coding agents to identify themselves, rather than impersonating its own CLI.
+exports.OPENCODE_USER_AGENT = 'antigravity-add-model/2.0.1';
 function isOpencodeProvider(provider) {
     return ['opencode', 'zen', 'opencode-go'].includes(provider || '');
 }

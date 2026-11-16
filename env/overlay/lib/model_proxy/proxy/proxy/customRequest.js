@@ -58,7 +58,6 @@ const subagentRouting_1 = require("./subagentRouting");
 const subagentModels_1 = require("./subagentModels");
 const googlePoolFailover_1 = require("./googlePoolFailover");
 const reasoningReplay_1 = require("./reasoningReplay");
-const zenEngine = require("./zen/zen-engine");
 const circuits = new circuitBreaker_1.CircuitBreaker();
 const controllers = new Set();
 const counts = {
@@ -368,9 +367,6 @@ async function runCustomModelRequest(res, primary, originalBody, isStream, allMo
                     let payload;
                     let url;
                     let headers;
-                    let requestZenBridge;
-                    let zenFmt = 'chat';
-                    let zenModelId = externalName;
                     try {
                         const outputBudget = model.maxOutputTokens ??
                             Number(originalBody.generationConfig?.maxOutputTokens ||
@@ -413,35 +409,11 @@ async function runCustomModelRequest(res, primary, originalBody, isStream, allMo
                         }
                         if (opencode) {
                             const identity = originalBody.sessionId || originalBody.conversationId;
-                            const convKey = typeof identity === 'string' && identity.trim() ? identity.trim() : 'default';
-                            zenModelId = zenEngine.normalizeZenModelId(externalName);
-                            zenFmt = zenEngine.modelFormat(zenModelId);
-                            if (Array.isArray(payload.messages)) {
-                                payload.messages = zenEngine.injectPreambleIntoMessages(payload.messages);
-                            }
-                            requestZenBridge = zenEngine.injectGateManifestTools(payload.tools || []);
-                            if (requestZenBridge.tools.length) {
-                                payload.tools = requestZenBridge.tools;
-                            }
-                            payload.model = zenModelId;
-                            payload.stream = true;
-                            payload.stream_options = { ...(payload.stream_options || {}), include_usage: true };
-                            if (zenFmt === 'responses') {
-                                payload = zenEngine.chatBodyToResponsesRequest(payload, zenModelId);
-                            }
-                            else if (requestZenBridge.bridgedCallerless) {
-                                payload.tool_choice = 'none';
-                            }
-                            if (!model.rawUrl) {
-                                url = new URL(zenEngine.getZenEndpointUrl(model.apiUrl, zenModelId));
-                            }
-                            headers = {
-                                ...headers,
-                                ...zenEngine.buildZenHeaders({
-                                    apiKey: model.apiKey,
-                                    conversationKey: convKey,
-                                }),
-                            };
+                            // Preserve conversation affinity without putting arbitrary Unicode or control characters in a header.
+                            headers['x-opencode-session'] =
+                                typeof identity === 'string' && identity.trim()
+                                    ? (0, crypto_1.createHash)('sha256').update(identity).digest('hex')
+                                    : requestId;
                         }
                         if (model.gateway) {
                             const identity = originalBody.conversationId || originalBody.sessionId;
@@ -465,22 +437,14 @@ async function runCustomModelRequest(res, primary, originalBody, isStream, allMo
                     }
                     counts.upstreamAttempts += 1;
                     const upstreamStartedAt = Date.now();
-                    const upstream = opencode && url.protocol === 'https:' && zenEngine.hasSystemBoringSslCurl()
-                        ? await zenEngine.requestZenUpstream(url, {
-                            headers,
-                            payload,
-                            timeoutMs: Math.min(model.timeout ?? 120000, remaining),
-                            allowUnauthorized: !!model.allowUnauthorized,
-                            signal,
-                        })
-                        : await new Promise((resolve, reject) => {
-                            request = (url.protocol === 'https:' ? https : http).request(url, { method: 'POST', headers, rejectUnauthorized: !model.allowUnauthorized }, resolve);
-                            request.once('error', reject);
-                            request.setTimeout(model.idleTimeout ?? 30000, () => request?.destroy(new UpstreamError('Upstream idle timeout.', 504)));
-                            totalTimer = setTimeout(() => request?.destroy(new UpstreamError('Upstream request timeout.', 504)), Math.min(model.timeout ?? 120000, remaining));
-                            signal.addEventListener('abort', abort, { once: true });
-                            request.end(JSON.stringify(payload));
-                        });
+                    const upstream = await new Promise((resolve, reject) => {
+                        request = (url.protocol === 'https:' ? https : http).request(url, { method: 'POST', headers, rejectUnauthorized: !model.allowUnauthorized }, resolve);
+                        request.once('error', reject);
+                        request.setTimeout(model.idleTimeout ?? 30000, () => request?.destroy(new UpstreamError('Upstream idle timeout.', 504)));
+                        totalTimer = setTimeout(() => request?.destroy(new UpstreamError('Upstream request timeout.', 504)), Math.min(model.timeout ?? 120000, remaining));
+                        signal.addEventListener('abort', abort, { once: true });
+                        request.end(JSON.stringify(payload));
+                    });
                     headerLatencyMs = Date.now() - upstreamStartedAt;
                     const status = upstream.statusCode || 502;
                     if (status < 200 || status >= 300) {
@@ -506,7 +470,6 @@ async function runCustomModelRequest(res, primary, originalBody, isStream, allMo
                     }
                     if (isStream && String(upstream.headers['content-type']).includes('text/event-stream')) {
                         const decoder = new string_decoder_1.StringDecoder('utf8');
-                        const zenResponsesState = { model: zenModelId, byId: new Map(), tools: [] };
                         let buffer = '';
                         let dataLines = [];
                         let emitted = false;
@@ -538,11 +501,6 @@ async function runCustomModelRequest(res, primary, originalBody, isStream, allMo
                                 throw new UpstreamError('Upstream reported a stream error.');
                             if (cloudCode && chunk.response)
                                 chunk = chunk.response;
-                            if (opencode && zenFmt === 'responses' && data.trim() !== '[DONE]') {
-                                chunk = zenEngine.responsesEventToOpenAIChunk(chunk, zenResponsesState);
-                                if (!chunk)
-                                    return;
-                            }
                             diagnostic.observe(chunk, format);
                             const delta = chunk.choices?.[0]?.delta;
                             if (delta?.content ||
@@ -561,17 +519,6 @@ async function runCustomModelRequest(res, primary, originalBody, isStream, allMo
                                 terminal = true;
                             if ((chunk.type === 'message_delta' && chunk.delta?.stop_reason === 'tool_use') ||
                                 chunk.choices?.[0]?.finish_reason) {
-                                if (opencode && requestZenBridge && chunk.choices?.[0]?.finish_reason) {
-                                    const existingCtx = shared_1.activeStreamContexts.get(stateKey);
-                                    const finalizedCtx = zenEngine.finalizeStreamToolCalls(existingCtx, delta, requestZenBridge, toolSchemas);
-                                    if (finalizedCtx) {
-                                        shared_1.activeStreamContexts.set(stateKey, finalizedCtx);
-                                        (0, shared_1.touchStateTimestamp)(shared_1.stateTimestamps.streamCtx, stateKey);
-                                        if (Object.keys(finalizedCtx.toolCalls).length === 0 && chunk.choices[0].finish_reason === 'tool_calls') {
-                                            chunk.choices[0].finish_reason = 'stop';
-                                        }
-                                    }
-                                }
                                 const pending = shared_1.activeStreamContexts.get(stateKey)?.toolCalls || {};
                                 // Validate a copy including this event before the translator appends
                                 // its fragments and consumes the state. Never append to live state twice.
@@ -641,13 +588,7 @@ async function runCustomModelRequest(res, primary, originalBody, isStream, allMo
                         }
                         let parsed;
                         try {
-                            const rawText = Buffer.concat(chunks).toString('utf8');
-                            if (opencode && String(upstream.headers['content-type']).includes('text/event-stream')) {
-                                parsed = zenEngine.collectSseToCompletionJson(rawText, zenFmt, zenModelId);
-                            }
-                            else {
-                                parsed = JSON.parse(rawText);
-                            }
+                            parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
                         }
                         catch {
                             throw new UpstreamError('Upstream returned invalid JSON.');
@@ -656,9 +597,6 @@ async function runCustomModelRequest(res, primary, originalBody, isStream, allMo
                             throw new UpstreamError('Upstream returned an error response.');
                         if (cloudCode && parsed.response)
                             parsed = parsed.response;
-                        if (opencode && requestZenBridge && parsed.choices?.[0]) {
-                            zenEngine.finalizeMessageToolCalls(parsed.choices[0], requestZenBridge, toolSchemas);
-                        }
                         diagnostic.observe(parsed, format);
                         if ((format === 'openai' && !parsed.choices?.[0]?.message) ||
                             (format === 'anthropic' && !Array.isArray(parsed.content)))
