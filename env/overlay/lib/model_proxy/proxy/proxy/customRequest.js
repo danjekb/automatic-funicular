@@ -413,7 +413,7 @@ async function runCustomModelRequest(res, primary, originalBody, isStream, allMo
                         }
                         if (opencode) {
                             const identity = originalBody.sessionId || originalBody.conversationId;
-                            const convKey = typeof identity === 'string' && identity.trim() ? identity.trim() : requestId;
+                            const convKey = typeof identity === 'string' && identity.trim() ? identity.trim() : 'default';
                             zenModelId = zenEngine.normalizeZenModelId(externalName);
                             zenFmt = zenEngine.modelFormat(zenModelId);
                             if (Array.isArray(payload.messages)) {
