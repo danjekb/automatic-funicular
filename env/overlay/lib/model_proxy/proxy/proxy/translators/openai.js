@@ -78,13 +78,15 @@ function mapAssistantMessage(parts) {
     // Replay reasoning from this history item for both ordinary and tool-call turns.
     return { role: 'assistant', content, ...(reasoning ? { reasoning_content: reasoning } : {}) };
 }
-function mapGeminiToolsToOpenAI(geminiTools) {
+function mapGeminiToolsToOpenAI(geminiTools, allowedFunctionNames) {
     if (!geminiTools || !Array.isArray(geminiTools))
         return [];
     const openaiTools = [];
     for (const toolGroup of geminiTools) {
         if (toolGroup.functionDeclarations && Array.isArray(toolGroup.functionDeclarations)) {
             for (const func of toolGroup.functionDeclarations) {
+                if (allowedFunctionNames && !allowedFunctionNames.has(func.name))
+                    continue;
                 const declaration = func.parametersJsonSchema ?? func.parameters;
                 const params = (0, utils_1.normalizeToolSchema)(declaration ?? { type: 'object', properties: {} });
                 openaiTools.push({
@@ -239,10 +241,20 @@ function mapGeminiToOpenAI(geminiBody, modelName, stateKey = modelName) {
         ...(needsNoTemperature ? {} : { temperature: geminiBody.generationConfig?.temperature ?? 0.7 }),
         ...(needsCompletionTokens ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
     };
-    if (geminiBody.tools && Array.isArray(geminiBody.tools)) {
-        const openaiTools = mapGeminiToolsToOpenAI(geminiBody.tools);
-        if (openaiTools.length > 0)
+    const functionConfig = geminiBody.toolConfig?.functionCallingConfig;
+    const functionMode = String(functionConfig?.mode || 'AUTO').toUpperCase();
+    const allowedFunctionNames = Array.isArray(functionConfig?.allowedFunctionNames) && functionConfig.allowedFunctionNames.length
+        ? new Set(functionConfig.allowedFunctionNames)
+        : undefined;
+    if (functionMode !== 'NONE' && geminiBody.tools && Array.isArray(geminiBody.tools)) {
+        const openaiTools = mapGeminiToolsToOpenAI(geminiBody.tools, allowedFunctionNames);
+        if (openaiTools.length > 0) {
             payload.tools = openaiTools;
+            if (functionMode === 'ANY')
+                payload.tool_choice = 'required';
+            else if (functionConfig?.mode || allowedFunctionNames)
+                payload.tool_choice = 'auto';
+        }
     }
     return payload;
 }
@@ -288,11 +300,22 @@ function parseDSMLToolCalls(text) {
         return null;
     }
 }
+function mapOpenAIFinishReason(reason) {
+    if (reason === 'stop' || reason === 'tool_calls' || reason === 'function_call')
+        return 'STOP';
+    if (reason === 'length' || reason === 'max_tokens')
+        return 'MAX_TOKENS';
+    if (reason === 'content_filter')
+        return 'SAFETY';
+    return 'OTHER';
+}
 function mapOpenAIToGemini(openAiRes, modelName, toolSchemas) {
     const choice = openAiRes.choices?.[0];
     const reasoning = choice?.message?.reasoning_content || choice?.message?.reasoning || '';
-    if (choice?.message?.tool_calls && choice.message.tool_calls.length > 0) {
-        const parts = choice.message.tool_calls.map((tc) => {
+    const declaredTools = toolSchemas instanceof Map ? toolSchemas : undefined;
+    const toolCalls = choice?.message?.tool_calls?.filter((tc) => !declaredTools || declaredTools.has(tc.function?.name));
+    if (toolCalls && toolCalls.length > 0) {
+        const parts = toolCalls.map((tc) => {
             let args;
             try {
                 args =
@@ -327,7 +350,7 @@ function mapOpenAIToGemini(openAiRes, modelName, toolSchemas) {
         if (reasoning)
             parts.unshift({ text: reasoning, thought: true });
         return {
-            candidates: [{ content: { parts, role: 'model' }, finishReason: 'STOP', index: 0 }],
+            candidates: [{ content: { parts, role: 'model' }, finishReason: mapOpenAIFinishReason(choice?.finish_reason), index: 0 }],
             usageMetadata: {
                 promptTokenCount: openAiRes.usage?.prompt_tokens || 0,
                 candidatesTokenCount: openAiRes.usage?.completion_tokens || 0,
@@ -336,9 +359,9 @@ function mapOpenAIToGemini(openAiRes, modelName, toolSchemas) {
         };
     }
     const text = choice?.message?.content || '';
-    const dsml = parseDSMLToolCalls(text);
+    const dsml = !declaredTools || declaredTools.size > 0 ? parseDSMLToolCalls(text) : null;
     if (dsml && dsml.functionCalls.length > 0) {
-        const parts = dsml.functionCalls.map((fc) => {
+        const parts = dsml.functionCalls.filter((fc) => !declaredTools || declaredTools.has(fc.name)).map((fc) => {
             const na = (0, utils_1.normalizeToolArgs)(fc.name, fc.args, toolSchemas);
             const tr = (0, utils_1.translateToolCallToNative)(fc.name, na, toolSchemas);
             return { functionCall: { name: tr.name, args: tr.args } };
@@ -348,7 +371,7 @@ function mapOpenAIToGemini(openAiRes, modelName, toolSchemas) {
         if (reasoning)
             parts.unshift({ text: reasoning, thought: true });
         return {
-            candidates: [{ content: { parts, role: 'model' }, finishReason: 'STOP', index: 0 }],
+            candidates: [{ content: { parts, role: 'model' }, finishReason: mapOpenAIFinishReason(choice?.finish_reason), index: 0 }],
             usageMetadata: {
                 promptTokenCount: openAiRes.usage?.prompt_tokens || 0,
                 candidatesTokenCount: openAiRes.usage?.completion_tokens || 0,
@@ -361,7 +384,7 @@ function mapOpenAIToGemini(openAiRes, modelName, toolSchemas) {
         parts.push({ text: reasoning, thought: true });
     if (text)
         parts.push({ text });
-    const finishReason = choice?.finish_reason === 'stop' ? 'STOP' : 'OTHER';
+    const finishReason = mapOpenAIFinishReason(choice?.finish_reason);
     return {
         candidates: [{ content: { parts, role: 'model' }, finishReason, index: 0 }],
         usageMetadata: {
@@ -420,7 +443,7 @@ function mapOpenAIChunkToGemini(chunk, modelName, streamKey, toolSchemas) {
         }
     }
     const finishReason = choice.finish_reason;
-    const completed = finishReason === 'stop' || finishReason === 'length' || finishReason === 'tool_calls';
+    const completed = finishReason === 'stop' || finishReason === 'length' || finishReason === 'tool_calls' || finishReason === 'content_filter';
     if (delta?.content)
         context.accumulatedText += delta.content;
     const reasoning = delta?.reasoning_content || delta?.reasoning || '';
@@ -436,13 +459,13 @@ function mapOpenAIChunkToGemini(chunk, modelName, streamKey, toolSchemas) {
     const completionParts = reasoning ? [{ text: reasoning, thought: true }] : [];
     // A complete invoke can precede a fragmented parallel invoke. Keep both until
     // the provider finishes, including providers that finish DSML with tool_calls.
-    if (completed && Object.keys(context.toolCalls).length === 0) {
+    if (completed && finishReason !== 'content_filter' && Object.keys(context.toolCalls).length === 0 && (!toolSchemas || toolSchemas.size > 0)) {
         const remaining = context.accumulatedText.slice(streamedTextPositions.get(context) || 0);
         const dsml = parseDSMLToolCalls(remaining);
         if (dsml && dsml.functionCalls.length > 0) {
             if (dsml.cleanText)
                 completionParts.push({ text: dsml.cleanText });
-            for (const fc of dsml.functionCalls) {
+            for (const fc of dsml.functionCalls.filter((call) => !toolSchemas || toolSchemas.has(call.name))) {
                 const args = (0, utils_1.normalizeToolArgs)(fc.name, fc.args, toolSchemas);
                 const translated = (0, utils_1.translateToolCallToNative)(fc.name, args, toolSchemas);
                 completionParts.push({
@@ -450,7 +473,7 @@ function mapOpenAIChunkToGemini(chunk, modelName, streamKey, toolSchemas) {
                 });
             }
             shared_1.activeStreamContexts.delete(streamId);
-            return { content: { parts: completionParts, role: 'model' }, finishReason: 'STOP', index: 0 };
+            return { content: { parts: completionParts, role: 'model' }, finishReason: mapOpenAIFinishReason(finishReason), index: 0 };
         }
     }
     if (completed) {
@@ -458,9 +481,9 @@ function mapOpenAIChunkToGemini(chunk, modelName, streamKey, toolSchemas) {
         if (text)
             completionParts.push({ text });
     }
-    if (finishReason === 'stop' || finishReason === 'length') {
+    if (finishReason === 'stop' || finishReason === 'length' || finishReason === 'content_filter') {
         // Check for pending native tool_calls before closing stream
-        const pendingToolCalls = Object.values(context.toolCalls).filter((tc) => tc.name && tc.arguments);
+        const pendingToolCalls = finishReason === 'content_filter' ? [] : Object.values(context.toolCalls).filter((tc) => tc.name && tc.arguments && (!toolSchemas || toolSchemas.has(tc.name)));
         if (pendingToolCalls.length > 0) {
             const parts = pendingToolCalls.map((tc) => {
                 let args = {};
@@ -488,14 +511,14 @@ function mapOpenAIChunkToGemini(chunk, modelName, streamKey, toolSchemas) {
                 return { functionCall: { name: translated.name, args: translated.args, id: tc.id } };
             });
             shared_1.activeStreamContexts.delete(streamId);
-            return { content: { parts: [...completionParts, ...parts], role: 'model' }, finishReason: 'STOP', index: 0 };
+            return { content: { parts: [...completionParts, ...parts], role: 'model' }, finishReason: mapOpenAIFinishReason(finishReason), index: 0 };
         }
         shared_1.activeStreamContexts.delete(streamId);
-        return { content: { parts: completionParts, role: 'model' }, finishReason: 'STOP', index: 0 };
+        return { content: { parts: completionParts, role: 'model' }, finishReason: mapOpenAIFinishReason(finishReason), index: 0 };
     }
     // Only emit tool calls when finishReason signals completion (args are fully accumulated)
     if (finishReason === 'tool_calls') {
-        const parts = Object.values(context.toolCalls).map((tc) => {
+        const parts = Object.values(context.toolCalls).filter((tc) => !toolSchemas || toolSchemas.has(tc.name)).map((tc) => {
             let args = {};
             try {
                 args = JSON.parse(tc.arguments);

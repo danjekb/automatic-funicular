@@ -119,6 +119,21 @@ function validateToolArguments(value) {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
         throw new UpstreamError('Upstream returned invalid tool arguments.', 502, false, 0, false);
 }
+function collectAllowedToolSchemas(body) {
+    const schemas = (0, utils_1.collectToolSchemas)(body);
+    const config = body?.toolConfig?.functionCallingConfig;
+    const mode = String(config?.mode || 'AUTO').toUpperCase();
+    if (mode === 'NONE')
+        return new Map();
+    if (Array.isArray(config?.allowedFunctionNames) && config.allowedFunctionNames.length) {
+        const allowed = new Set(config.allowedFunctionNames);
+        for (const name of schemas.keys()) {
+            if (!allowed.has(name))
+                schemas.delete(name);
+        }
+    }
+    return schemas;
+}
 /** Read only a bounded error body for classification; never expose or persist its contents. */
 async function boundedErrorBody(upstream) {
     const chunks = [];
@@ -244,7 +259,7 @@ async function runCustomModelRequest(res, primary, originalBody, isStream, allMo
     // Resolve once before trimming/translating; retries and fallback providers
     // must preserve the primary model's choice for this compaction operation.
     const compactionEffort = (0, requestOptions_1.isAntigravityCompactionRequest)(originalBody) ? primary.compactionReasoningEffort : undefined;
-    const toolSchemas = (0, utils_1.collectToolSchemas)(originalBody);
+    const toolSchemas = collectAllowedToolSchemas(originalBody);
     const artifactContext = (0, artifactMetadata_1.collectArtifactContext)(originalBody, toolSchemas);
     const controller = new AbortController();
     const { signal } = controller;

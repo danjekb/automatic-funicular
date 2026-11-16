@@ -55,13 +55,15 @@ function mapContentParts(parts) {
     }
     return content;
 }
-function mapGeminiToolsToAnthropic(geminiTools) {
+function mapGeminiToolsToAnthropic(geminiTools, allowedFunctionNames) {
     if (!geminiTools || !Array.isArray(geminiTools))
         return [];
     const anthropicTools = [];
     for (const toolGroup of geminiTools) {
         if (toolGroup.functionDeclarations && Array.isArray(toolGroup.functionDeclarations)) {
             for (const func of toolGroup.functionDeclarations) {
+                if (allowedFunctionNames && !allowedFunctionNames.has(func.name))
+                    continue;
                 const declaration = func.parametersJsonSchema ?? func.parameters;
                 const params = (0, utils_1.normalizeToolSchema)(declaration ?? { type: 'object', properties: {} });
                 anthropicTools.push({
@@ -187,6 +189,11 @@ function mapGeminiToAnthropic(geminiBody, modelName, stateKey = modelName) {
         system,
         max_tokens: geminiBody.generationConfig?.maxOutputTokens ?? 16000,
     };
+    const functionConfig = geminiBody.toolConfig?.functionCallingConfig;
+    const functionMode = String(functionConfig?.mode || 'AUTO').toUpperCase();
+    const allowedFunctionNames = Array.isArray(functionConfig?.allowedFunctionNames) && functionConfig.allowedFunctionNames.length
+        ? new Set(functionConfig.allowedFunctionNames)
+        : undefined;
     // Claude thinking models don't support temperature (centralized detection)
     const { isThinkingModel } = (0, modelUtils_1.detectModelCapabilitiesByName)(modelName);
     if (!isThinkingModel) {
@@ -194,10 +201,15 @@ function mapGeminiToAnthropic(geminiBody, modelName, stateKey = modelName) {
         if (temp !== undefined && temp !== null)
             result.temperature = temp;
     }
-    if (geminiBody.tools && Array.isArray(geminiBody.tools)) {
-        const anthTools = mapGeminiToolsToAnthropic(geminiBody.tools);
-        if (anthTools.length > 0)
+    if (functionMode !== 'NONE' && geminiBody.tools && Array.isArray(geminiBody.tools)) {
+        const anthTools = mapGeminiToolsToAnthropic(geminiBody.tools, allowedFunctionNames);
+        if (anthTools.length > 0) {
             result.tools = anthTools;
+            if (functionMode === 'ANY')
+                result.tool_choice = { type: 'any' };
+            else if (functionConfig?.mode || allowedFunctionNames)
+                result.tool_choice = { type: 'auto' };
+        }
     }
     return result;
 }
@@ -206,6 +218,7 @@ function mapAnthropicToGemini(anthRes, modelName, toolSchemas) {
     const contentBlocks = anthRes.content || [];
     const parts = [];
     const functionCalls = [];
+    const declaredTools = toolSchemas instanceof Map ? toolSchemas : undefined;
     for (const block of contentBlocks) {
         if (block.type === 'text' && block.text) {
             parts.push({ text: block.text });
@@ -214,6 +227,8 @@ function mapAnthropicToGemini(anthRes, modelName, toolSchemas) {
             parts.push({ text: block.thinking, thought: true });
         }
         else if (block.type === 'tool_use') {
+            if (declaredTools && !declaredTools.has(block.name))
+                continue;
             const modelTCIds = shared_1.modelToolCallIds.get(modelName) || {};
             modelTCIds[block.name || ''] = block.id || '';
             shared_1.modelToolCallIds.set(modelName, modelTCIds);
@@ -236,9 +251,11 @@ function mapAnthropicToGemini(anthRes, modelName, toolSchemas) {
         }
     }
     if (functionCalls.length > 0) {
+        const finishReason = anthRes.stop_reason === 'max_tokens' ? 'MAX_TOKENS'
+            : anthRes.stop_reason === 'refusal' ? 'SAFETY' : 'STOP';
         return {
             candidates: [
-                { content: { parts: [...parts, ...functionCalls], role: 'model' }, finishReason: 'STOP', index: 0 },
+                { content: { parts: [...parts, ...functionCalls], role: 'model' }, finishReason, index: 0 },
             ],
             usageMetadata: {
                 promptTokenCount: anthRes.usage?.input_tokens || 0,
@@ -247,7 +264,9 @@ function mapAnthropicToGemini(anthRes, modelName, toolSchemas) {
             },
         };
     }
-    const finishReason = anthRes.stop_reason === 'end_turn' ? 'STOP' : anthRes.stop_reason === 'max_tokens' ? 'MAX_TOKENS' : 'OTHER';
+    const finishReason = anthRes.stop_reason === 'end_turn' || anthRes.stop_reason === 'stop_sequence' ? 'STOP'
+        : anthRes.stop_reason === 'max_tokens' ? 'MAX_TOKENS'
+            : anthRes.stop_reason === 'refusal' ? 'SAFETY' : 'OTHER';
     return {
         candidates: [{ content: { parts, role: 'model' }, finishReason, index: 0 }],
         usageMetadata: {
@@ -266,10 +285,11 @@ function mapAnthropicChunkToGemini(chunk, modelName, streamKey, toolSchemas) {
         (0, shared_1.touchStateTimestamp)(shared_1.stateTimestamps.streamCtx, streamId);
     }
     const context = shared_1.activeStreamContexts.get(streamId);
+    const declaredTools = toolSchemas instanceof Map ? toolSchemas : undefined;
     if (type === 'content_block_start') {
         const block = chunk.content_block;
         const idx = chunk.index ?? 0;
-        if (block?.type === 'tool_use') {
+        if (block?.type === 'tool_use' && (!declaredTools || declaredTools.has(block.name))) {
             context.toolCalls[idx] = {
                 id: block.id || '',
                 name: block.name || '',
@@ -302,6 +322,8 @@ function mapAnthropicChunkToGemini(chunk, modelName, streamKey, toolSchemas) {
     }
     if (type === 'message_delta') {
         const delta = chunk.delta;
+        if (delta?.stop_reason)
+            context.stopReason = delta.stop_reason;
         if (delta?.stop_reason === 'tool_use') {
             const parts = Object.values(context.toolCalls).map((tc) => {
                 let args = {};
@@ -329,13 +351,15 @@ function mapAnthropicChunkToGemini(chunk, modelName, streamKey, toolSchemas) {
                 }
                 return { functionCall: { name: translated.name, args: translated.args, id: tc.id } };
             });
-            shared_1.activeStreamContexts.delete(streamId);
             return { content: { parts, role: 'model' }, finishReason: 'STOP', index: 0 };
         }
     }
     if (type === 'message_stop') {
         shared_1.activeStreamContexts.delete(streamId);
-        return { content: { parts: [], role: 'model' }, finishReason: 'STOP', index: 0 };
+        const finishReason = context.stopReason === 'max_tokens' ? 'MAX_TOKENS'
+            : context.stopReason === 'refusal' ? 'SAFETY'
+                : context.stopReason === 'end_turn' || context.stopReason === 'stop_sequence' || context.stopReason === 'tool_use' ? 'STOP' : 'OTHER';
+        return { content: { parts: [], role: 'model' }, finishReason, index: 0 };
     }
     return null;
 }
