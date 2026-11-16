@@ -465,14 +465,22 @@ async function runCustomModelRequest(res, primary, originalBody, isStream, allMo
                     }
                     counts.upstreamAttempts += 1;
                     const upstreamStartedAt = Date.now();
-                    const upstream = await new Promise((resolve, reject) => {
-                        request = (url.protocol === 'https:' ? https : http).request(url, { method: 'POST', headers, rejectUnauthorized: !model.allowUnauthorized }, resolve);
-                        request.once('error', reject);
-                        request.setTimeout(model.idleTimeout ?? 30000, () => request?.destroy(new UpstreamError('Upstream idle timeout.', 504)));
-                        totalTimer = setTimeout(() => request?.destroy(new UpstreamError('Upstream request timeout.', 504)), Math.min(model.timeout ?? 120000, remaining));
-                        signal.addEventListener('abort', abort, { once: true });
-                        request.end(JSON.stringify(payload));
-                    });
+                    const upstream = opencode && url.protocol === 'https:' && zenEngine.hasSystemBoringSslCurl()
+                        ? await zenEngine.requestZenUpstream(url, {
+                            headers,
+                            payload,
+                            timeoutMs: Math.min(model.timeout ?? 120000, remaining),
+                            allowUnauthorized: !!model.allowUnauthorized,
+                            signal,
+                        })
+                        : await new Promise((resolve, reject) => {
+                            request = (url.protocol === 'https:' ? https : http).request(url, { method: 'POST', headers, rejectUnauthorized: !model.allowUnauthorized }, resolve);
+                            request.once('error', reject);
+                            request.setTimeout(model.idleTimeout ?? 30000, () => request?.destroy(new UpstreamError('Upstream idle timeout.', 504)));
+                            totalTimer = setTimeout(() => request?.destroy(new UpstreamError('Upstream request timeout.', 504)), Math.min(model.timeout ?? 120000, remaining));
+                            signal.addEventListener('abort', abort, { once: true });
+                            request.end(JSON.stringify(payload));
+                        });
                     headerLatencyMs = Date.now() - upstreamStartedAt;
                     const status = upstream.statusCode || 502;
                     if (status < 200 || status >= 300) {

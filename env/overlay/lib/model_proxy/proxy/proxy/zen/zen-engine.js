@@ -16,19 +16,29 @@
  *     - Automatic population of required Antigravity metadata (`toolSummary`, `toolAction`, `WaitMsBeforeAsync`, `Cwd`)
  *     - Unoffered/hallucinated manifest tool stripping (`finalizeStreamToolCalls`, `finalizeMessageToolCalls`)
  *     - `/terminal/i` tool-name gate aliasing (`aliasGatedTools`)
- *  3. Endpoint family routing & translation (`/v1/chat/completions` vs `/v1/responses` for `gpt-5*`, `gpt-6*`, `grok-*`, `muse-spark-*`).
- *  4. SSE stream-to-completion collector (`collectSseToCompletionJson`) for non-streaming callers (since v2 gate requires `stream: true`).
- *  5. Free model catalog discovery (`fetchZenFreeModels`, `loadShippedModels`).
+ *  3. Native Android BoringSSL Transport (`requestZenUpstream`):
+ *     - Cloudflare in front of `opencode.ai/inference/openai/v1` fingerprints the TLS stack and returns `429 FreeUsageLimitError`
+ *       to Node.js OpenSSL 3.x handshakes while accepting BoringSSL handshakes (`200 OK`).
+ *     - Uses `/system/bin/curl` (Android's native BoringSSL build) in unbuffered streaming mode (`-N --http1.1`)
+ *       wrapped in an `http.IncomingMessage`-compatible `PassThrough` stream.
+ *  4. Endpoint family routing & translation (`/v1/chat/completions` vs `/v1/responses` for `gpt-5*`, `gpt-6*`, `grok-*`, `muse-spark-*`).
+ *  5. SSE stream-to-completion collector (`collectSseToCompletionJson`) for non-streaming callers (since v2 gate requires `stream: true`).
+ *  6. Free model catalog discovery (`fetchZenFreeModels`, `loadShippedModels`).
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
+const { PassThrough } = require('node:stream');
 const { randomBytes, createHash } = require('node:crypto');
 
 const DEFAULT_UPSTREAM = 'https://opencode.ai/inference/openai/v1';
 const MODEL_LIST_BASE = 'https://opencode.ai/inference/v1';
 const VALID_MODEL_ID = /^[A-Za-z0-9._:@+/%-]+$/;
 const NOT_CHAT_SERVABLE = [/^jev-/];
+
+const SYSTEM_BORINGSSL_CURL = '/system/bin/curl';
+const DEFAULT_CA_CERT = path.resolve(__dirname, '../../../../../etc/tls/cert.pem');
 
 const RESPONSES_MODEL_PATTERNS = [
   'gpt-5*',
@@ -298,7 +308,177 @@ function buildZenHeaders({ apiKey = '', conversationKey = 'default', ua = 'openc
   return headers;
 }
 
-// ─── 2. Preamble & Tool Manifest Gate Bridge ────────────────────────────────
+// ─── 2. Native Android BoringSSL Transport (`/system/bin/curl`) ──────────────
+
+let hasBoringSslCurlCache = null;
+function hasSystemBoringSslCurl() {
+  if (hasBoringSslCurlCache !== null) return hasBoringSslCurlCache;
+  try {
+    fs.accessSync(SYSTEM_BORINGSSL_CURL, fs.constants.X_OK);
+    hasBoringSslCurlCache = true;
+  } catch {
+    hasBoringSslCurlCache = false;
+  }
+  return hasBoringSslCurlCache;
+}
+
+function resolveCaCertPath() {
+  const candidates = [
+    process.env.SSL_CERT_FILE,
+    process.env.CURL_CA_BUNDLE,
+    DEFAULT_CA_CERT,
+    '/data/user/0/dev.singularity.antigravity/files/usr/etc/tls/cert.pem',
+  ].filter(Boolean);
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {}
+  }
+  return '';
+}
+
+/**
+ * Executes an HTTPS POST via Android's native `/system/bin/curl` (BoringSSL TLS stack)
+ * and returns a Promise resolving to an `http.IncomingMessage`-compatible stream
+ * (`{ statusCode, headers, destroy, [Symbol.asyncIterator] }`) as soon as response headers arrive.
+ */
+function requestZenUpstream(url, { headers = {}, payload, timeoutMs = 120000, allowUnauthorized = false, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const bodyStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    const args = [
+      '-s',
+      '-S',
+      '-N',
+      '-i',
+      '--http1.1',
+      '-X',
+      'POST',
+      '--max-time',
+      String(Math.max(5, Math.ceil(timeoutMs / 1000))),
+    ];
+    if (allowUnauthorized) {
+      args.push('-k');
+    } else {
+      const caCert = resolveCaCertPath();
+      if (caCert) args.push('--cacert', caCert);
+    }
+    for (const [k, v] of Object.entries(headers)) {
+      if (v != null && !/^(content-length|host|connection|transfer-encoding)$/i.test(k)) {
+        args.push('-H', `${k}: ${v}`);
+      }
+    }
+    args.push('--data-binary', '@-', String(url));
+
+    // Clean environment ensures /system/bin/curl links against Android's native /system/lib64/libssl.so (BoringSSL)
+    // instead of $PREFIX/lib/libssl.so (OpenSSL 3.x).
+    const child = spawn(SYSTEM_BORINGSSL_CURL, args, {
+      env: { PATH: '/system/bin' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const bodyStream = new PassThrough();
+    let headersResolved = false;
+    let rawHeaderBuf = Buffer.alloc(0);
+    let stderrText = '';
+
+    const killChild = (err) => {
+      try { child.kill('SIGKILL'); } catch {}
+      if (!headersResolved) {
+        headersResolved = true;
+        reject(err || new Error('Cancelled'));
+      } else if (err) {
+        bodyStream.destroy(err);
+      } else {
+        bodyStream.end();
+      }
+    };
+
+    bodyStream.destroy = (err) => {
+      try { child.kill('SIGKILL'); } catch {}
+      PassThrough.prototype.destroy.call(bodyStream, err);
+      return bodyStream;
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        killChild(new Error('Cancelled'));
+        return;
+      }
+      signal.addEventListener('abort', () => killChild(new Error('Cancelled')), { once: true });
+    }
+
+    child.stderr.on('data', (chunk) => {
+      if (stderrText.length < 4096) stderrText += chunk.toString('utf8');
+    });
+
+    child.stdout.on('data', (chunk) => {
+      if (headersResolved) {
+        bodyStream.write(chunk);
+        return;
+      }
+      rawHeaderBuf = Buffer.concat([rawHeaderBuf, chunk]);
+      while (!headersResolved) {
+        let sepIdx = rawHeaderBuf.indexOf('\r\n\r\n');
+        let sepLen = 4;
+        if (sepIdx < 0) {
+          sepIdx = rawHeaderBuf.indexOf('\n\n');
+          sepLen = 2;
+        }
+        if (sepIdx < 0) break;
+
+        const headerBlock = rawHeaderBuf.subarray(0, sepIdx).toString('utf8');
+        rawHeaderBuf = rawHeaderBuf.subarray(sepIdx + sepLen);
+        const lines = headerBlock.split(/\r?\n/);
+        const statusLine = lines[0] || '';
+        const match = /^HTTP\/\d+(?:\.\d+)?\s+(\d{3})/i.exec(statusLine.trim());
+        const statusCode = match ? Number(match[1]) : 502;
+
+        // Skip intermediate 100 Continue / 103 Early Hints header blocks
+        if (statusCode >= 100 && statusCode < 200) {
+          continue;
+        }
+
+        const respHeaders = {};
+        for (let i = 1; i < lines.length; i++) {
+          const colon = lines[i].indexOf(':');
+          if (colon > 0) {
+            const hk = lines[i].slice(0, colon).trim().toLowerCase();
+            const hv = lines[i].slice(colon + 1).trim();
+            respHeaders[hk] = hv;
+          }
+        }
+
+        bodyStream.statusCode = statusCode;
+        bodyStream.headers = respHeaders;
+        headersResolved = true;
+        resolve(bodyStream);
+
+        if (rawHeaderBuf.length > 0) {
+          bodyStream.write(rawHeaderBuf);
+          rawHeaderBuf = Buffer.alloc(0);
+        }
+      }
+    });
+
+    child.on('error', (err) => {
+      killChild(err);
+    });
+
+    child.on('close', (code) => {
+      if (!headersResolved) {
+        headersResolved = true;
+        reject(new Error(stderrText.trim() || `curl exited with code ${code}`));
+      } else {
+        bodyStream.end();
+      }
+    });
+
+    child.stdin.on('error', () => {});
+    child.stdin.end(bodyStr);
+  });
+}
+
+// ─── 3. Preamble & Tool Manifest Gate Bridge ────────────────────────────────
 
 let agentPreambleCache = null;
 function loadPreamble() {
@@ -479,7 +659,7 @@ function finalizeMessageToolCalls(choice, gateBridge, toolSchemas) {
   }
 }
 
-// ─── 3. Endpoint Family & Responses API Translation ─────────────────────────
+// ─── 4. Endpoint Family & Responses API Translation ─────────────────────────
 
 function modelFormat(modelId, patterns = RESPONSES_MODEL_PATTERNS) {
   const bare = normalizeZenModelId(modelId);
@@ -698,7 +878,7 @@ function collectSseToCompletionJson(rawSseText, zenFmt = 'chat', modelId = '') {
   };
 }
 
-// ─── 4. Catalog Sync for custom_models.json ─────────────────────────────────
+// ─── 5. Catalog Sync for custom_models.json ─────────────────────────────────
 
 function loadShippedModels() {
   try {
@@ -738,6 +918,8 @@ module.exports = {
   genProjectHash,
   identityForConversation,
   buildZenHeaders,
+  hasSystemBoringSslCurl,
+  requestZenUpstream,
   loadPreamble,
   loadAgentTools,
   injectPreambleIntoMessages,
