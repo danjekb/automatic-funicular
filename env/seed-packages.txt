@@ -1,0 +1,3 @@
+# Default packages to be automatically verified/installed on first launch
+nodejs
+git

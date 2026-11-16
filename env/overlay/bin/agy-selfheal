@@ -1,0 +1,94 @@
+#!/system/bin/sh
+# agy-selfheal — repair the Android/Java toolchain without opening the UI.
+#
+# Fixes the same things as Settings › Tools › "Починить окруzenie":
+#   * $PREFIX/etc/profile.d/65-agy-jvm.sh and the AGY bridges,
+#   * the $PREFIX/bin/gradle launcher symlink,
+#   * the AGP state file ↔ "# AGY-AGP:" note in AGENTS.md,
+#   * the <!-- AGY-GRADLE-AGP --> rules block in both AGENTS.md copies.
+#   * Internal app file permissions (chown/chmod to the app's own UID) so the
+#     app process (running as its own Android UID) can read/execute its own
+#     files again after a root-owned extraction, a bad `su -c` write, or a
+#     stale overlay.
+# Idempotent: running it twice in a row changes nothing the second time.
+# Registered with agy-daemon (`agy-daemon task list`) so a toolchain that
+# rots after an app update heals itself in the background.
+#
+# Usage:
+#   agy-selfheal                 # fix current app's files (needs $HOME set)
+#   agy-selfheal <pkg>           # fix /data/user/0/<pkg>/files (e.g. under su -c)
+set -u
+
+# Ensure basic environment (may be missing under `su -c`).
+: "${HOME:=/data/user/0/dev.singularity.antigravity.dev/files}"
+: "${PREFIX:=$HOME/usr}"
+
+# Minimal logging stubs used before agy_tools.sh is loaded.
+say()  { printf '%s\n' "$*"; }
+step() { printf '\n== %s\n' "$*"; }
+
+# --- fix_app_permissions <pkg|dir> ---
+# Resets ownership and mode bits on the app's private files directory so the
+# app process (running as its own Android UID) can read/traverse/execute its
+# own files again. Safe to run on any directory owned by the target UID.
+fix_app_permissions() {
+    local target="${1:-$HOME}"
+    local uid
+
+    # Resolve target: package name -> /data/user/0/<pkg>/files, or a raw path.
+    case "$target" in
+        /*) : ;;                              # already an absolute path
+        *.*) target="/data/user/0/$target/files" ;;   # looks like a package name
+        *)   target="$HOME" ;;                # fallback: current app home
+    esac
+
+    [ -d "$target" ] || { say "@@selfheal perms-skip $target (missing)"; return 0; }
+
+    uid="$(stat -c %u "$target" 2>/dev/null)" || return 1
+
+    step "Fixing app file permissions ($target, uid=$uid)"
+
+    # Re-own everything to the app's own UID (root can do this; the app can't).
+    chown -R "$uid:$uid" "$target" 2>/dev/null || true
+
+    # Directories must be traversable by the owner.
+    find "$target" -type d -exec chmod 755 {} \; 2>/dev/null || true
+
+    # Known executables / scripts must be executable by the owner.
+    # Includes shell interpreters (sh, bash) so wrapper scripts can run.
+    find "$target" -type f \
+        \( -name '*.sh' -o -name 'sh' -o -name 'bash' -o -name 'su' -o -name 'rish' \
+           -o -name 'node' -o -name 'python*' -o -name 'gradle' -o -name 'agy-*' \
+           -o -name 'aapt' -o -name 'zipalign' -o -name 'apksigner' \) \
+        -exec chmod 755 {} \; 2>/dev/null || true
+
+    # Regular data files must be readable by the owner.
+    find "$target" -type f ! -perm -u+x -exec chmod 644 {} \; 2>/dev/null || true
+
+    say "@@selfheal perms-fixed uid=$uid"
+}
+
+WEB="${AGY_WEB:-$HOME/web}"
+SELF="$WEB/agy_tools.sh"
+
+# 0) Fix internal app file permissions FIRST — independent of agy_tools.sh,
+#    so it works even when web assets are incomplete (e.g. dev builds).
+#    Accepts an optional package name as $1, e.g.:
+#      agy-selfheal dev.singularity.antigravity.dev
+fix_app_permissions "${1:-}"
+
+# 1) Run the standard toolchain selfheal (JVM truststore, Gradle, AGP, rules).
+if [ ! -f "$SELF" ]; then
+    say "@@selfheal agy-tools-missing skipping toolchain selfheal"
+    exit 0
+fi
+
+# Try bash first (needed by agy_tools.sh), fall back gracefully.
+BASH="$PREFIX/bin/bash"
+if [ -x "$BASH" ]; then
+    export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    exec "$BASH" "$SELF" selfheal "$@"
+else
+    say "@@selfheal bash-missing skipping toolchain selfheal"
+    exit 0
+fi
