@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
@@ -52,7 +53,8 @@ public class MainActivity extends Activity
     private static final String TAG = "MainActivity";
     private static final int REQUEST_STORAGE = 100;
     private static final int REQUEST_FILE_CHOOSER = 1002;
-    private static final long SPLASH_TIMEOUT_MS = 60000;
+    /** Cold boot extracts and starts node/model_proxy first; 120s covers it. */
+    private static final long SPLASH_TIMEOUT_MS = 120000;
     private static final long POLL_STARTUP_INTERVAL_MS = 50;
     private static final long POLL_READY_INTERVAL_MS = 1000;
 
@@ -124,7 +126,7 @@ public class MainActivity extends Activity
             return;
         }
         if (!appLoaded && CoreRuntimeState.serverUrl == null && !splash.isFatalShown()
-                && System.currentTimeMillis() > splashDeadline) {
+                && SystemClock.elapsedRealtime() > splashDeadline) {
             splash.showFatalError("core did not start within " + (SPLASH_TIMEOUT_MS / 1000) + "s");
         }
     }
@@ -161,7 +163,7 @@ public class MainActivity extends Activity
 
         splash.installExitAnimation(this);
 
-        splashDeadline = System.currentTimeMillis() + SPLASH_TIMEOUT_MS;
+        splashDeadline = SystemClock.elapsedRealtime() + SPLASH_TIMEOUT_MS;
         requestStoragePermissions();
 
         startCoreService();
@@ -186,7 +188,7 @@ public class MainActivity extends Activity
         splash.clearFatal();
         appLoaded = false;
         loadedGeneration = -1;
-        splashDeadline = System.currentTimeMillis() + SPLASH_TIMEOUT_MS;
+        splashDeadline = SystemClock.elapsedRealtime() + SPLASH_TIMEOUT_MS;
         splash.showLoading();
         CoreServiceLauncher.stop(this);
         try {

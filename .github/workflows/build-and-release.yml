@@ -59,6 +59,8 @@ jobs:
         run: bash modules/env/tests/run_all.sh
       - name: I/O shim tests
         run: bash modules/io/tests/run_all.sh
+      - name: Gateway pass-through tests
+        run: bash modules/gateway/tests/run_all.sh
       - name: Web bundle build and syntax checks
         run: bash web/tests/selftest.sh
 

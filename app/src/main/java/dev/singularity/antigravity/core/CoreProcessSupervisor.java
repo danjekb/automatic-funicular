@@ -31,7 +31,7 @@ public final class CoreProcessSupervisor {
      * working) and the failure is written to core.log.
      */
     private static final long PROXY_READY_TIMEOUT_MS = 120000;
-    private static final long PROXY_POLL_INTERVAL_MS = 150;
+    private static final long PROXY_POLL_INTERVAL_MS = 250;
     private static final long PROXY_NOTICE_INTERVAL_MS = 5000;
 
     private final Context appContext;
@@ -118,7 +118,7 @@ public final class CoreProcessSupervisor {
                     break;
                 }
 
-                long readyAt = System.currentTimeMillis();
+                long readyAt = ModelProxyGate.nowMs();
                 try {
                     proc.waitFor();
                 } catch (InterruptedException ie) {
@@ -129,7 +129,7 @@ public final class CoreProcessSupervisor {
                 }
 
                 int code = ProcessUtils.exitCode(proc);
-                if (System.currentTimeMillis() - readyAt >= CoreRestartPolicy.SUSTAINED_READY_MS) {
+                if (ModelProxyGate.nowMs() - readyAt >= CoreRestartPolicy.SUSTAINED_READY_MS) {
                     attempt = 0;
                 }
                 CoreRuntimeState.serverUrl = null;
@@ -141,7 +141,7 @@ public final class CoreProcessSupervisor {
                             + " times; giving up (last exit code " + code + ")"
                             + (tail.isEmpty() ? "" : "\n--- core.log tail ---\n" + tail);
                     CoreLogWriter.writeLine(log, CoreRuntimeState.lastError);
-                    dev.singularity.antigravity.log.CrashRecorder.recordCrash(appContext, code, System.currentTimeMillis() - readyAt, CoreRuntimeState.lastError, logBuffer);
+                    dev.singularity.antigravity.log.CrashRecorder.recordCrash(appContext, code, ModelProxyGate.nowMs() - readyAt, CoreRuntimeState.lastError, logBuffer);
                     break;
                 }
                 long delay = CoreRestartPolicy.delayFor(attempt);
@@ -152,7 +152,7 @@ public final class CoreProcessSupervisor {
                         + (tail.isEmpty() ? "" : "\n--- core.log tail ---\n" + tail);
                 Log.w(TAG, CoreRuntimeState.lastError);
                 CoreLogWriter.writeLine(log, CoreRuntimeState.lastError);
-                dev.singularity.antigravity.log.CrashRecorder.recordCrash(appContext, code, System.currentTimeMillis() - readyAt, CoreRuntimeState.lastError, logBuffer);
+                dev.singularity.antigravity.log.CrashRecorder.recordCrash(appContext, code, ModelProxyGate.nowMs() - readyAt, CoreRuntimeState.lastError, logBuffer);
                 CoreLogWriter.closeQuietly(log);
                 log = null;
                 sleepInterruptible(delay);
@@ -177,29 +177,30 @@ public final class CoreProcessSupervisor {
      * always up first. Bounded and interruptible: when the proxy cannot start
      * (missing node/extraction failure) the core is still launched after the
      * timeout instead of leaving the app permanently unusable.
+     *
+     * The loop is a plain poll driven by the monotonic clock: every probe is a
+     * bounded (250ms) TCP connect, so no single attempt can stall it, and the
+     * wall clock is never consulted because it can jump during boot.
      */
     private void awaitModelProxy(Writer log) {
         if (!ModelProxyGate.isEnabled()) {
             return;
         }
-        long start = System.currentTimeMillis();
-        long nextNotice = start + 2000;
-        boolean loggedWait = false;
+        long start = ModelProxyGate.nowMs();
+        long nextNotice = 0;
         while (!stopping) {
             if (ModelProxyGate.isAccepting()) {
-                long waited = System.currentTimeMillis() - start;
-                if (waited >= 250) {
-                    String line = "model_proxy accepting on 127.0.0.1:"
-                            + ModelProxyGate.PROXY_PORT + " after " + waited + "ms; launching core";
-                    Log.i(TAG, line);
-                    CoreLogWriter.writeLine(log, line);
-                    if (logBuffer != null) {
-                        logBuffer.appendLine(line);
-                    }
+                long waited = Math.max(0, ModelProxyGate.nowMs() - start);
+                String line = "model_proxy accepting on 127.0.0.1:"
+                        + ModelProxyGate.PROXY_PORT + " after " + waited + "ms; launching core";
+                Log.i(TAG, line);
+                CoreLogWriter.writeLine(log, line);
+                if (logBuffer != null) {
+                    logBuffer.appendLine(line);
                 }
                 return;
             }
-            long elapsed = System.currentTimeMillis() - start;
+            long elapsed = Math.max(0, ModelProxyGate.nowMs() - start);
             if (elapsed >= PROXY_READY_TIMEOUT_MS) {
                 String line = "model_proxy did not accept connections on 127.0.0.1:"
                         + ModelProxyGate.PROXY_PORT + " within " + PROXY_READY_TIMEOUT_MS
@@ -211,26 +212,25 @@ public final class CoreProcessSupervisor {
                 }
                 return;
             }
-            long now = System.currentTimeMillis();
-            if (now >= nextNotice) {
+            if (elapsed >= nextNotice) {
                 String line = "waiting for model_proxy on 127.0.0.1:"
                         + ModelProxyGate.PROXY_PORT + " (" + elapsed + "ms elapsed)";
                 Log.i(TAG, line);
-                if (!loggedWait) {
-                    CoreLogWriter.writeLine(log, line);
-                    loggedWait = true;
+                CoreLogWriter.writeLine(log, line);
+                if (logBuffer != null) {
+                    logBuffer.appendLine(line);
                 }
-                nextNotice = now + PROXY_NOTICE_INTERVAL_MS;
+                nextNotice = elapsed + PROXY_NOTICE_INTERVAL_MS;
             }
             ProcessUtils.sleep(PROXY_POLL_INTERVAL_MS);
         }
     }
 
     private boolean waitForReady(Process proc, Writer log) {
-        long start = System.currentTimeMillis();
+        long start = ModelProxyGate.nowMs();
         String csrf = runtime.getCsrfToken();
         int port = CoreRuntimeState.httpsPort;
-        while (System.currentTimeMillis() - start < CoreReadyProbe.READY_TIMEOUT_MS) {
+        while (ModelProxyGate.nowMs() - start < CoreReadyProbe.READY_TIMEOUT_MS) {
             if (stopping) {
                 return false;
             }
@@ -276,9 +276,9 @@ public final class CoreProcessSupervisor {
     }
 
     private void sleepInterruptible(long ms) {
-        long end = System.currentTimeMillis() + ms;
+        long end = ModelProxyGate.nowMs() + ms;
         while (!stopping) {
-            long left = end - System.currentTimeMillis();
+            long left = end - ModelProxyGate.nowMs();
             if (left <= 0) {
                 return;
             }
