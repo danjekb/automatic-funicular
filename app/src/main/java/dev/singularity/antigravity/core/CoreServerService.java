@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.util.Log;
 
 import dev.singularity.antigravity.runtime.RuntimeManager;
+import dev.singularity.antigravity.util.ProcessUtils;
 
 import java.io.File;
 import java.util.concurrent.TimeUnit;
