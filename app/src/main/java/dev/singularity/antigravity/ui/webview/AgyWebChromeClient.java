@@ -8,6 +8,7 @@ import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 
+import dev.singularity.antigravity.util.BootTrace;
 import dev.singularity.antigravity.util.SensitiveDataRedactor;
 
 /** Routes console output to logcat, popups to PopupWindowHandler, and file chooser to callback. */
@@ -46,6 +47,12 @@ public final class AgyWebChromeClient extends WebChromeClient {
                 Log.w(tag, "[" + src + ":" + line + "] " + msg);
             } else {
                 Log.i(tag, "[" + src + ":" + line + "] " + msg);
+            }
+            // The WebView bundle fails silently on a phone: keep JS errors and
+            // warnings in the exportable startup timeline.
+            if (lvl == ConsoleMessage.MessageLevel.ERROR
+                    || lvl == ConsoleMessage.MessageLevel.WARNING) {
+                BootTrace.append("JS " + lvl + " [" + src + ":" + line + "] " + msg);
             }
         }
         return true;

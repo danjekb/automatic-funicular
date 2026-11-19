@@ -14,6 +14,7 @@ import android.webkit.WebViewClient;
 
 import dev.singularity.antigravity.bridge.AndroidBridge;
 import dev.singularity.antigravity.oauth.OAuthManager;
+import dev.singularity.antigravity.util.BootTrace;
 import dev.singularity.antigravity.util.SensitiveDataRedactor;
 import dev.singularity.antigravity.util.TrustedCoreOrigin;
 
@@ -40,9 +41,13 @@ public final class AgyWebViewClient extends WebViewClient {
     @Override
     public void onReceivedError(WebView v, WebResourceRequest req, WebResourceError err) {
         if (req != null && req.getUrl() != null) {
+            String description = err != null ? String.valueOf(err.getDescription()) : "unknown";
             Log.w(TAG, "Resource load error: "
                     + SensitiveDataRedactor.safeUrl(req.getUrl().toString()) + " err="
-                    + (err != null ? err.getDescription() : "unknown"));
+                    + description);
+            BootTrace.append("resource error" + (req.isForMainFrame() ? " (main frame)" : "")
+                    + ": " + SensitiveDataRedactor.safeUrl(req.getUrl().toString())
+                    + " err=" + description);
         }
     }
 
@@ -110,6 +115,7 @@ public final class AgyWebViewClient extends WebViewClient {
         if (url == null || url.isEmpty() || url.equals("about:blank")) {
             return;
         }
+        BootTrace.append("onPageStarted " + SensitiveDataRedactor.safeUrl(url));
         try {
             Uri uri = Uri.parse(url);
             if (!TrustedCoreOrigin.matches(uri, bridge.getEnginePort())) {
@@ -174,8 +180,11 @@ public final class AgyWebViewClient extends WebViewClient {
 
     @Override
     public void onPageFinished(WebView v, String url) {
+        BootTrace.append("onPageFinished " + SensitiveDataRedactor.safeUrl(url));
         if (listener != null) {
             listener.onPageFinished(url);
         }
     }
+
+
 }

@@ -5,6 +5,7 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import dev.singularity.antigravity.runtime.RuntimeManager;
+import dev.singularity.antigravity.util.BootTrace;
 import dev.singularity.antigravity.util.CoreUrl;
 import dev.singularity.antigravity.util.ErrorText;
 import dev.singularity.antigravity.util.ProcessUtils;
@@ -163,6 +164,7 @@ public final class CoreProcessSupervisor {
                 Log.e(TAG, "core start failed", e);
                 CoreRuntimeState.lastError = ErrorText.describe(e);
                 CoreLogWriter.writeLine(log, "core start failed: " + CoreRuntimeState.lastError);
+                BootTrace.append("core start failed: " + CoreRuntimeState.lastError);
                 // install/launch failure: fail-closed, user retries from the splash.
                 break;
             } finally {
@@ -195,6 +197,7 @@ public final class CoreProcessSupervisor {
                         + ModelProxyGate.PROXY_PORT + " after " + waited + "ms; launching core";
                 Log.i(TAG, line);
                 CoreLogWriter.writeLine(log, line);
+                BootTrace.append(line);
                 if (logBuffer != null) {
                     logBuffer.appendLine(line);
                 }
@@ -207,6 +210,7 @@ public final class CoreProcessSupervisor {
                         + "ms; starting core anyway (custom models will fail until the proxy is up)";
                 Log.w(TAG, line);
                 CoreLogWriter.writeLine(log, line);
+                BootTrace.append(line);
                 if (logBuffer != null) {
                     logBuffer.appendLine(line);
                 }
@@ -251,6 +255,7 @@ public final class CoreProcessSupervisor {
                 String readyStatus = "core ready on 127.0.0.1:" + port;
                 Log.i(TAG, readyStatus);
                 CoreLogWriter.writeLine(log, readyStatus);
+                BootTrace.append(readyStatus + " serverUrl=" + CoreRuntimeState.serverUrl);
                 return true;
             }
         }

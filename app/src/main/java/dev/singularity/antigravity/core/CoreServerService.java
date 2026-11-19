@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.util.Log;
 
 import dev.singularity.antigravity.runtime.RuntimeManager;
+import dev.singularity.antigravity.util.BootTrace;
 import dev.singularity.antigravity.util.ProcessUtils;
 
 import java.io.File;
@@ -46,6 +47,8 @@ public final class CoreServerService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        BootTrace.install(this);
+        BootTrace.append("CoreServerService.onCreate");
         runtime = new RuntimeManager(this);
         logBuffer = new dev.singularity.antigravity.log.LogRingBuffer();
         gatewayServer = new dev.singularity.antigravity.gateway.SystemGatewayServer(this, logBuffer, dev.singularity.antigravity.BuildConfig.GATEWAY_PORT);
@@ -221,6 +224,8 @@ public final class CoreServerService extends Service {
                     String spawned = "model_proxy spawned; stdout/stderr -> "
                             + rawOutputLog.getAbsolutePath();
                     Log.i(TAG, spawned);
+                    BootTrace.append("model_proxy spawned (" + (hasSu ? "su -c" : "direct")
+                            + "), stdout -> " + rawOutputLog.getAbsolutePath());
                     if (logBuffer != null) {
                         logBuffer.appendLine(spawned);
                     }
@@ -229,9 +234,12 @@ public final class CoreServerService extends Service {
                     modelProxyProcess = null;
 
                     if (!modelProxyEnabled || destroyed) {
+                        BootTrace.append("model_proxy stopped (exit code " + exitCode + ")");
                         break;
                     }
 
+                    BootTrace.append("model_proxy exited code=" + exitCode
+                            + "; restarting in 2s (see " + rawOutputLog.getAbsolutePath() + ")");
                     Log.w(TAG, "Model proxy terminated with exit code " + exitCode
                             + " (see " + logFile.getAbsolutePath() + " and "
                             + rawOutputLog.getAbsolutePath() + "). Restarting in 2s...");
@@ -243,6 +251,7 @@ public final class CoreServerService extends Service {
                 } catch (Exception e) {
                     destroyModelProxyProcess();
                     Log.w(TAG, "Error in model proxy lifecycle: " + e.getMessage());
+                    BootTrace.append("model_proxy lifecycle error: " + e.getMessage());
                     try {
                         Thread.sleep(3000);
                     } catch (InterruptedException ignored) {

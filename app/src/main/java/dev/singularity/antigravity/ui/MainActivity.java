@@ -39,6 +39,7 @@ import dev.singularity.antigravity.ui.splash.SplashController;
 import dev.singularity.antigravity.ui.webview.AgyWebChromeClient;
 import dev.singularity.antigravity.ui.webview.DesktopModePrefs;
 import dev.singularity.antigravity.ui.webview.WebViewHost;
+import dev.singularity.antigravity.util.BootTrace;
 import dev.singularity.antigravity.util.SensitiveDataRedactor;
 import dev.singularity.antigravity.util.ViewParams;
 
@@ -72,7 +73,10 @@ public class MainActivity extends Activity
     private FrameLayout rootLayout;
 
     private boolean appLoaded = false;
+    private boolean uiReady = false;
+    private boolean uiReloaded = false;
     private boolean activityResumed = false;
+    private static boolean crashTracerInstalled = false;
     private int loadedGeneration = -1;
     private long splashDeadline;
 
@@ -107,19 +111,19 @@ public class MainActivity extends Activity
             int generation = CoreRuntimeState.readyGeneration;
             if (!appLoaded || (loadedGeneration > 0 && generation != loadedGeneration)) {
                 appLoaded = true;
+                uiReloaded = false;
                 loadedGeneration = generation;
                 splash.clearFatal();
                 if (generation > 1) {
                     splash.showLoading();
                 }
+                BootTrace.append("serverUrl=" + SensitiveDataRedactor.safeUrl(CoreRuntimeState.serverUrl)
+                        + " generation=" + generation + "; loading UI");
                 webViewHost.loadApp();
                 handler.postDelayed(new Runnable() {
                     @Override
                     public void run() {
-                        if (appLoaded && !splash.isFatalShown()) {
-                            Log.w(TAG, "watchdog: auto-dismissing splash after timeout");
-                            dismissSplash();
-                        }
+                        verifyFirstPaint();
                     }
                 }, 10000);
             }
@@ -135,6 +139,9 @@ public class MainActivity extends Activity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         activeActivity = this;
+        BootTrace.install(this);
+        installCrashTracer();
+        BootTrace.append("MainActivity.onCreate pid=" + android.os.Process.myPid());
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
 
@@ -187,7 +194,10 @@ public class MainActivity extends Activity
     private void retryCore() {
         splash.clearFatal();
         appLoaded = false;
+        uiReady = false;
+        uiReloaded = false;
         loadedGeneration = -1;
+        BootTrace.append("retry requested");
         splashDeadline = SystemClock.elapsedRealtime() + SPLASH_TIMEOUT_MS;
         splash.showLoading();
         CoreServiceLauncher.stop(this);
@@ -214,7 +224,111 @@ public class MainActivity extends Activity
     /** Idempotent; called by AndroidBridge.onUiReady() on the main thread. */
     public void dismissSplash() {
         Log.i(TAG, "dismissSplash: fading out splashView (280ms)");
+        uiReady = true;
+        BootTrace.append("UI reported ready; dismissing splash");
         splash.dismiss();
+    }
+
+    /**
+     * The splash must never be removed blindly. A WebView that parsed our shell
+     * but failed to run the app bundle paints nothing, and hiding the splash on
+     * a timer turns that into an unexplained black screen. Instead of guessing,
+     * inspect the DOM after the grace period and fail closed with a readable
+     * message that points at files/logs/boot.log.
+     */
+    private void verifyFirstPaint() {
+        if (!appLoaded || uiReady || splash.isFatalShown() || webViewHost == null) {
+            return;
+        }
+        final WebView webView = webViewHost.getWebView();
+        if (webView == null) {
+            return;
+        }
+        webView.evaluateJavascript(
+                "(function(){try{var b=document.body;if(!b)return '0|0';"
+                        + "var t=(b.innerText||'').trim().length;"
+                        + "return t+'|'+b.querySelectorAll('*').length;"
+                        + "}catch(e){return '-1|-1';}})()",
+                new ValueCallback<String>() {
+                    @Override
+                    public void onReceiveValue(String value) {
+                        if (uiReady) {
+                            return;
+                        }
+                        boolean painted = domLooksPainted(value);
+                        BootTrace.append("first-paint probe: " + value + " painted=" + painted);
+                        if (painted) {
+                            Log.w(TAG, "watchdog: UI never signalled ready but rendered "
+                                    + "content; dismissing splash");
+                            dismissSplash();
+                        } else if (!uiReloaded) {
+                            // An empty DOM right after ready is usually a race with
+                            // asset staging, so reload the bundle once before failing.
+                            uiReloaded = true;
+                            BootTrace.append("first paint empty (DOM " + value
+                                    + "); reloading UI once");
+                            webViewHost.loadApp();
+                            handler.postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    verifyFirstPaint();
+                                }
+                            }, 8000);
+                        } else {
+                            splash.showFatalError("UI loaded but rendered nothing (DOM " + value
+                                    + "). See files/logs/boot.log");
+                        }
+                    }
+                });
+    }
+
+    /** Parses "textLength|nodeCount" from the probe; content means text or a real tree. */
+    private static boolean domLooksPainted(String value) {
+        if (value == null) {
+            return false;
+        }
+        String raw = value.trim();
+        if (raw.length() >= 2 && raw.startsWith("\"") && raw.endsWith("\"")) {
+            raw = raw.substring(1, raw.length() - 1);
+        }
+        int sep = raw.indexOf('|');
+        if (sep <= 0) {
+            return false;
+        }
+        try {
+            int text = Integer.parseInt(raw.substring(0, sep).trim());
+            int nodes = Integer.parseInt(raw.substring(sep + 1).trim());
+            return text > 0 || nodes > 20;
+        } catch (NumberFormatException notANumber) {
+            return false;
+        }
+    }
+
+    /**
+     * A Java crash on a phone without adb leaves no trace at all, so record the
+     * stack in boot.log before the default handler kills the process.
+     */
+    private static void installCrashTracer() {
+        if (crashTracerInstalled) {
+            return;
+        }
+        crashTracerInstalled = true;
+        final Thread.UncaughtExceptionHandler previous =
+                Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread thread, Throwable throwable) {
+                try {
+                    java.io.StringWriter stack = new java.io.StringWriter();
+                    throwable.printStackTrace(new java.io.PrintWriter(stack));
+                    BootTrace.append("FATAL on " + thread.getName() + ":\n" + stack);
+                } catch (Exception ignored) {
+                }
+                if (previous != null) {
+                    previous.uncaughtException(thread, throwable);
+                }
+            }
+        });
     }
 
     public boolean isDesktopMode() {
