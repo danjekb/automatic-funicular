@@ -33,6 +33,15 @@ public final class CoreServerService extends Service {
     private Process modelProxyProcess;
     private Thread modelProxyThread;
 
+    /** Port the local model proxy listens on; shared with the core launch gate. */
+    private static final int PROXY_PORT = ModelProxyGate.PROXY_PORT;
+    /** Path fragment identifying a model_proxy child in /proc/<pid>/cmdline. */
+    private static final String PROXY_ENTRY_MARKER = "model_proxy/entry.js";
+    /** Every model_proxy child appends its stdout/stderr here. */
+    private static final String PROXY_STDOUT_LOG = "proxy.log";
+    /** Grace period for a SIGTERM'd proxy child before it is killed outright. */
+    private static final long PROXY_STOP_GRACE_MS = 1500;
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -83,6 +92,11 @@ public final class CoreServerService extends Service {
     }
 
     private void startModelProxy() {
+        // A retry must own exactly one supervisor: stop a previous one (and its
+        // child) before spawning a fresh model_proxy process.
+        if (modelProxyThread != null && modelProxyThread.isAlive()) {
+            stopModelProxy();
+        }
         modelProxyEnabled = true;
         // The core supervisor blocks on this gate before launching language_server.
         ModelProxyGate.setEnabled(true);
@@ -91,7 +105,7 @@ public final class CoreServerService extends Service {
             File logsDir = new File(getFilesDir(), "logs");
             logsDir.mkdirs();
             File logFile = new File(logsDir, "model-proxy.log");
-            File rawOutputLog = new File(logsDir, "model-proxy.out.log");
+            File rawOutputLog = new File(logsDir, PROXY_STDOUT_LOG);
             File dataDir = new File(getFilesDir(), ".gemini/antigravity-app");
             dataDir.mkdirs();
             try {
@@ -141,7 +155,12 @@ public final class CoreServerService extends Service {
                 }
 
                 try {
-                    Log.i(TAG, "Starting local model adapter proxy on port 50996...");
+                    // A stale child from a previous session (or the node process
+                    // behind an `su -c` wrapper, which destroy() cannot reach) still
+                    // owns the port; the new proxy would exit with EADDRINUSE and
+                    // never log READY. Clear them before every spawn.
+                    killStaleModelProxyProcesses();
+                    Log.i(TAG, "Starting local model adapter proxy on port " + PROXY_PORT + "...");
                     dev.singularity.antigravity.shell.RootBridge rootBridge =
                             new dev.singularity.antigravity.shell.RootBridge(CoreServerService.this);
                     boolean hasSu = rootBridge.isAvailable();
@@ -155,7 +174,7 @@ public final class CoreServerService extends Service {
                                 "export SSL_CERT_FILE='" + prefixDir.getAbsolutePath() + "/etc/tls/cert.pem' && " +
                                 "export CURL_CA_BUNDLE='" + prefixDir.getAbsolutePath() + "/etc/tls/cert.pem' && " +
                                 "exec '" + prefixDir.getAbsolutePath() + "/bin/node' '" + proxyEntry.getAbsolutePath() + "' " +
-                                "--port 50996 --data-dir '" + dataDir.getAbsolutePath() + "' --log-file '" + logFile.getAbsolutePath() + "'";
+                                "--port " + PROXY_PORT + " --data-dir '" + dataDir.getAbsolutePath() + "' --log-file '" + logFile.getAbsolutePath() + "'";
 
                         pb = new ProcessBuilder("/system/bin/su", "-c", proxyCmd);
                         pb.environment().remove("LD_LIBRARY_PATH");
@@ -164,7 +183,7 @@ public final class CoreServerService extends Service {
                         cmd.add(nodeExe.getAbsolutePath());
                         cmd.add(proxyEntry.getAbsolutePath());
                         cmd.add("--port");
-                        cmd.add("50996");
+                        cmd.add(String.valueOf(PROXY_PORT));
                         cmd.add("--data-dir");
                         cmd.add(dataDir.getAbsolutePath());
                         cmd.add("--log-file");
@@ -198,6 +217,12 @@ public final class CoreServerService extends Service {
 
                     Process p = pb.start();
                     modelProxyProcess = p;
+                    String spawned = "model_proxy spawned; stdout/stderr -> "
+                            + rawOutputLog.getAbsolutePath();
+                    Log.i(TAG, spawned);
+                    if (logBuffer != null) {
+                        logBuffer.appendLine(spawned);
+                    }
 
                     int exitCode = p.waitFor();
                     modelProxyProcess = null;
@@ -211,8 +236,11 @@ public final class CoreServerService extends Service {
                             + rawOutputLog.getAbsolutePath() + "). Restarting in 2s...");
                     Thread.sleep(2000);
                 } catch (InterruptedException ie) {
+                    // Stop requested while waiting on the child: never orphan it.
+                    destroyModelProxyProcess();
                     break;
                 } catch (Exception e) {
+                    destroyModelProxyProcess();
                     Log.w(TAG, "Error in model proxy lifecycle: " + e.getMessage());
                     try {
                         Thread.sleep(3000);
@@ -300,35 +328,146 @@ public final class CoreServerService extends Service {
         // Release the core launch gate first: a stopped proxy must not block restarts.
         ModelProxyGate.setEnabled(false);
         modelProxyEnabled = false;
-        if (modelProxyThread != null) {
-            modelProxyThread.interrupt();
+        Thread owner = modelProxyThread;
+        modelProxyThread = null;
+        if (owner != null) {
+            owner.interrupt();
         }
-        if (modelProxyProcess != null) {
+        // Kill our child and anything else still holding the proxy port, so the
+        // next start (retry, service recreation) can bind 50996 again.
+        destroyModelProxyProcess();
+        if (owner != null && owner != Thread.currentThread()) {
             try {
-                modelProxyProcess.destroy();
+                owner.join(2000);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /**
+     * Terminate our own proxy child (SIGTERM, then SIGKILL after a short grace)
+     * and any orphaned model_proxy process left behind by a previous session.
+     */
+    private void destroyModelProxyProcess() {
+        Process p = modelProxyProcess;
+        modelProxyProcess = null;
+        if (p != null) {
+            try {
+                p.destroy();
+            } catch (Exception ignored) {
+            }
+            try {
+                if (!p.waitFor(PROXY_STOP_GRACE_MS, TimeUnit.MILLISECONDS)) {
+                    p.destroyForcibly();
+                }
+            } catch (InterruptedException ie) {
+                try {
+                    p.destroyForcibly();
+                } catch (Exception ignored) {
+                }
+            } catch (Exception ignored) {
+                try {
+                    p.destroyForcibly();
+                } catch (Exception ignoredToo) {
+                }
+            }
+        }
+        killStaleModelProxyProcesses();
+    }
+
+    /**
+     * Kill every model_proxy process that is not ours: the node child behind an
+     * `su -c` wrapper survives a destroy() of the wrapper, keeps port 50996 bound
+     * and starves every later proxy. Detection walks /proc cmdlines (works for
+     * our own uid) and is repeated through su (works for root-owned children).
+     */
+    private void killStaleModelProxyProcesses() {
+        java.util.LinkedHashSet<Integer> pids = new java.util.LinkedHashSet<>();
+        int myPid = android.os.Process.myPid();
+        File[] entries = new File("/proc").listFiles();
+        if (entries != null) {
+            for (File entry : entries) {
+                if (!entry.getName().matches("\\d+")) {
+                    continue;
+                }
+                int pid;
+                try {
+                    pid = Integer.parseInt(entry.getName());
+                } catch (NumberFormatException notAPid) {
+                    continue;
+                }
+                if (pid == myPid) {
+                    continue;
+                }
+                if (isModelProxyCmdline(readCmdline(new File(entry, "cmdline")))) {
+                    pids.add(pid);
+                }
+            }
+        }
+        for (int pid : pids) {
+            Log.w(TAG, "Terminating stale model_proxy process (PID " + pid + ")");
+            try {
+                android.os.Process.sendSignal(pid, android.os.Process.SIGNAL_KILL);
+            } catch (Exception ignored) {
+            }
+            try {
+                new dev.singularity.antigravity.shell.RootBridge(this)
+                        .exec("kill -9 " + pid + " 2>/dev/null");
             } catch (Exception ignored) {
             }
         }
-        try {
-            File stateFile = new File(getFilesDir(), ".gemini/antigravity-app/.ide-proxy/state.json");
-            if (stateFile.isFile()) {
-                String content = new String(java.nio.file.Files.readAllBytes(stateFile.toPath()));
-                org.json.JSONObject obj = new org.json.JSONObject(content);
-                int pid = obj.optInt("pid", 0);
-                if (pid > 0) {
-                    Log.i(TAG, "Terminating model proxy PID " + pid);
-                    try {
-                        android.os.Process.sendSignal(pid, 15);
-                    } catch (Exception ignored) {
-                    }
-                    try {
-                        new dev.singularity.antigravity.shell.RootBridge(this).exec("kill -15 " + pid);
-                    } catch (Exception ignored) {
-                    }
+        // Root-owned children are invisible to the app-side /proc scan. Only ask
+        // su when the port is still bound, so the common path never pays for it.
+        if (ModelProxyGate.isAccepting()) {
+            // The [m] trick keeps the shell running this command from matching
+            // its own cmdline.
+            try {
+                dev.singularity.antigravity.shell.RootBridge bridge =
+                        new dev.singularity.antigravity.shell.RootBridge(this);
+                if (bridge.isAvailable()) {
+                    bridge.exec("for p in /proc/[0-9]*; do "
+                            + "if tr '\\0' ' ' < $p/cmdline 2>/dev/null | grep -q '[m]odel_proxy/entry.js'; then "
+                            + "kill -9 ${p#/proc/} 2>/dev/null; fi; done; true");
                 }
+            } catch (Exception ignored) {
             }
-        } catch (Exception ignored) {
         }
+        long deadline = ModelProxyGate.nowMs() + 3000;
+        while (ModelProxyGate.nowMs() < deadline) {
+            if (!ModelProxyGate.isAccepting()) {
+                return;
+            }
+            ProcessUtils.sleep(100);
+        }
+        Log.w(TAG, "model_proxy port " + PROXY_PORT + " still accepting after stale-process cleanup");
+    }
+
+    private static String readCmdline(File cmdlineFile) {
+        if (!cmdlineFile.canRead()) {
+            return "";
+        }
+        try (java.io.FileInputStream in = new java.io.FileInputStream(cmdlineFile)) {
+            byte[] buf = new byte[1024];
+            int n = in.read(buf);
+            if (n <= 0) {
+                return "";
+            }
+            return new String(buf, 0, n).replace('\u0000', ' ');
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static boolean isModelProxyCmdline(String cmdline) {
+        if (cmdline == null || cmdline.isEmpty()) {
+            return false;
+        }
+        if (cmdline.contains(PROXY_ENTRY_MARKER)) {
+            return true;
+        }
+        // Overlay/non-standard install paths: entry.js started on the proxy port.
+        return cmdline.contains("entry.js") && cmdline.contains(String.valueOf(PROXY_PORT));
     }
 
     @Override

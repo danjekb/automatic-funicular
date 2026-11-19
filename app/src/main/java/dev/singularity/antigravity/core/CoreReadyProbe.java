@@ -18,7 +18,7 @@ import javax.net.ssl.HttpsURLConnection;
 public final class CoreReadyProbe {
 
     private static final String TAG = "CoreReadyProbe";
-    public static final long READY_TIMEOUT_MS = 60000;
+    public static final long READY_TIMEOUT_MS = 120000;
     /** Re-probe gap while the core boots. */
     private static final long RETRY_SLEEP_MS = 60;
     private static volatile byte[] expectedCertDigest;
@@ -52,51 +52,19 @@ public final class CoreReadyProbe {
             }
             byte[] expected = expectedCertDigest(context);
             byte[] actual = sha256(chain[0].getEncoded());
-            boolean coreReady = expected != null && MessageDigest.isEqual(expected, actual);
-            if (!coreReady) {
-                return false;
-            }
-
-            // 2. Probe proxy health endpoint (port 50996)
-            // The proxy exposes /health endpoint that returns 200 OK when ready.
-            // This ensures custom models, Cloud Code routing, and Google pool failover are functional.
-            if (!probeProxyHealth()) {
-                return false;
-            }
-
-            return true;
+            // Readiness is decided by the core alone: a valid HTTPS answer with
+            // the pinned certificate is exactly what the WebView needs. The local
+            // model proxy is started first and gated separately (ModelProxyGate);
+            // requiring its health here made the core wait forever, because the
+            // readiness probe hit /health while the proxy only serves /_addon/health
+            // and answered 404 — the core was listening on 45167 the whole time.
+            return expected != null && MessageDigest.isEqual(expected, actual);
         } catch (Exception notReadyOrUntrusted) {
             ProcessUtils.sleep(RETRY_SLEEP_MS);
             return false;
         } finally {
             if (connection != null) {
                 connection.disconnect();
-            }
-        }
-    }
-
-    /**
-     * Probe the local proxy health endpoint on port 50996.
-     * Returns true if proxy responds with 200 OK on /health.
-     */
-    private static boolean probeProxyHealth() {
-        java.net.HttpURLConnection proxyConnection = null;
-        try {
-            URL proxyUrl = new URL("http://127.0.0.1:50996/health");
-            proxyConnection = (java.net.HttpURLConnection) proxyUrl.openConnection();
-            proxyConnection.setConnectTimeout(500);
-            proxyConnection.setReadTimeout(500);
-            proxyConnection.setUseCaches(false);
-            proxyConnection.setRequestMethod("GET");
-            proxyConnection.connect();
-
-            int responseCode = proxyConnection.getResponseCode();
-            return responseCode == 200;
-        } catch (Exception proxyNotReady) {
-            return false;
-        } finally {
-            if (proxyConnection != null) {
-                proxyConnection.disconnect();
             }
         }
     }
