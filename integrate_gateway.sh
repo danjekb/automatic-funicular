@@ -176,9 +176,27 @@ function writeJsonAtomic(filePath, value) {
   }
 }
 
+function installFatalHandlers(logFile) {
+  const appendFatal = (kind, detail) => {
+    const text = `${new Date().toISOString()} [FATAL] ${kind}: ${detail}`;
+    try { console.error(text); } catch {}
+    if (!logFile) return;
+    try { fs.appendFileSync(logFile, text + '\n', { encoding: 'utf8' }); } catch {}
+  };
+  const describe = (err) => (err && err.stack ? err.stack : String(err));
+  process.on('uncaughtException', (err) => {
+    appendFatal('uncaughtException', describe(err));
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (reason) => {
+    appendFatal('unhandledRejection', describe(reason));
+  });
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.logFile) process.env.AGY_MODEL_PROXY_LOG = path.resolve(opts.logFile);
+  installFatalHandlers(process.env.AGY_MODEL_PROXY_LOG || '');
   fs.mkdirSync(opts.dataDir, { recursive: true, mode: 0o700 });
   const canonicalDataDir = fs.realpathSync(opts.dataDir);
   const proxyStateDir = path.join(canonicalDataDir, '.ide-proxy');
@@ -232,7 +250,13 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('[model_proxy] Fatal startup error:', err && err.stack ? err.stack : err);
+  const detail = err && err.stack ? err.stack : String(err);
+  console.error('[model_proxy] Fatal startup error:', detail);
+  if (process.env.AGY_MODEL_PROXY_LOG) {
+    try {
+      fs.appendFileSync(process.env.AGY_MODEL_PROXY_LOG, `${new Date().toISOString()} [FATAL] startup: ${detail}\n`, { encoding: 'utf8' });
+    } catch {}
+  }
   process.exit(1);
 });
 EOF

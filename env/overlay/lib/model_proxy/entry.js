@@ -29,8 +29,7 @@ try {
   };
 } catch (_) {}
 
-function parseArgs(argv) {
-  const opts = {
+function parseArgs(argv) {  const opts = {
     port: 50996,
     dataDir: path.join(os.homedir(), '.gemini', 'antigravity-app'),
     logFile: process.env.AGY_MODEL_PROXY_LOG || '',
@@ -78,11 +77,40 @@ function writeJsonAtomic(filePath, value) {
   }
 }
 
+/**
+ * Last-resort logging: the app redirects this process's stdout/stderr into the
+ * proxy log, but a crash trace must also survive a closed pipe and be written
+ * by the process itself. An uncaught exception exits so the Android supervisor
+ * restarts the proxy; an unhandled rejection is logged without killing an
+ * otherwise healthy proxy (aborted SSE streams are expected to reject).
+ */
+function installFatalHandlers(logFile) {
+  const appendFatal = (kind, detail) => {
+    const text = `${new Date().toISOString()} [FATAL] ${kind}: ${detail}`;
+    try {
+      console.error(text);
+    } catch {}
+    if (!logFile) return;
+    try {
+      fs.appendFileSync(logFile, text + '\n', { encoding: 'utf8' });
+    } catch {}
+  };
+  const describe = (err) => (err && err.stack ? err.stack : String(err));
+  process.on('uncaughtException', (err) => {
+    appendFatal('uncaughtException', describe(err));
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (reason) => {
+    appendFatal('unhandledRejection', describe(reason));
+  });
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.logFile) {
     process.env.AGY_MODEL_PROXY_LOG = path.resolve(opts.logFile);
   }
+  installFatalHandlers(process.env.AGY_MODEL_PROXY_LOG || '');
 
   fs.mkdirSync(opts.dataDir, { recursive: true, mode: 0o700 });
   const canonicalDataDir = fs.realpathSync(opts.dataDir);
@@ -151,7 +179,28 @@ async function main() {
   console.log(`[model_proxy] READY port=${service.port} pid=${process.pid}`);
 }
 
+/** Best-effort log path for failures that happen before --log-file is applied. */
+function resolveLogFile(argv) {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--log-file' && argv[i + 1]) {
+      return path.resolve(argv[i + 1]);
+    }
+  }
+  return '';
+}
+
 main().catch((err) => {
-  console.error('[model_proxy] Fatal startup error:', err && err.stack ? err.stack : err);
+  const detail = err && err.stack ? err.stack : String(err);
+  console.error('[model_proxy] Fatal startup error:', detail);
+  const logFile = process.env.AGY_MODEL_PROXY_LOG || resolveLogFile(process.argv.slice(2));
+  if (logFile) {
+    try {
+      fs.appendFileSync(
+        logFile,
+        `${new Date().toISOString()} [FATAL] startup: ${detail}\n`,
+        { encoding: 'utf8' }
+      );
+    } catch {}
+  }
   process.exit(1);
 });

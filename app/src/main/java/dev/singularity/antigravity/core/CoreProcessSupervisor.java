@@ -24,6 +24,16 @@ public final class CoreProcessSupervisor {
 
     private static final String TAG = "CoreProcessSupervisor";
 
+    /**
+     * Upper bound for waiting on the model proxy before the core is launched
+     * anyway. A clean install may still be extracting node/model_proxy, so the
+     * wait is generous; after it the core still boots (native models keep
+     * working) and the failure is written to core.log.
+     */
+    private static final long PROXY_READY_TIMEOUT_MS = 120000;
+    private static final long PROXY_POLL_INTERVAL_MS = 150;
+    private static final long PROXY_NOTICE_INTERVAL_MS = 5000;
+
     private final Context appContext;
     private final RuntimeManager runtime;
     private final OpenUrlWatcher openUrlWatcher;
@@ -80,6 +90,12 @@ public final class CoreProcessSupervisor {
             try {
                 CoreRuntimeState.lastError = null;
                 CoreRuntimeState.restarting = false;
+                // The core routes Cloud Code traffic to the local proxy; launching
+                // it earlier makes every first request fail with ECONNREFUSED.
+                awaitModelProxy(log);
+                if (stopping) {
+                    break;
+                }
                 Process proc = CoreLauncher.launch(runtime, appContext.getFilesDir());
                 process = proc;
 
@@ -152,6 +168,61 @@ public final class CoreProcessSupervisor {
             } finally {
                 CoreLogWriter.closeQuietly(log);
             }
+        }
+    }
+
+    /**
+     * Block until the model proxy accepts TCP connections on its loopback port.
+     * Called on every core launch (including auto-restarts) so the proxy is
+     * always up first. Bounded and interruptible: when the proxy cannot start
+     * (missing node/extraction failure) the core is still launched after the
+     * timeout instead of leaving the app permanently unusable.
+     */
+    private void awaitModelProxy(Writer log) {
+        if (!ModelProxyGate.isEnabled()) {
+            return;
+        }
+        long start = System.currentTimeMillis();
+        long nextNotice = start + 2000;
+        boolean loggedWait = false;
+        while (!stopping) {
+            if (ModelProxyGate.isAccepting()) {
+                long waited = System.currentTimeMillis() - start;
+                if (waited >= 250) {
+                    String line = "model_proxy accepting on 127.0.0.1:"
+                            + ModelProxyGate.PROXY_PORT + " after " + waited + "ms; launching core";
+                    Log.i(TAG, line);
+                    CoreLogWriter.writeLine(log, line);
+                    if (logBuffer != null) {
+                        logBuffer.appendLine(line);
+                    }
+                }
+                return;
+            }
+            long elapsed = System.currentTimeMillis() - start;
+            if (elapsed >= PROXY_READY_TIMEOUT_MS) {
+                String line = "model_proxy did not accept connections on 127.0.0.1:"
+                        + ModelProxyGate.PROXY_PORT + " within " + PROXY_READY_TIMEOUT_MS
+                        + "ms; starting core anyway (custom models will fail until the proxy is up)";
+                Log.w(TAG, line);
+                CoreLogWriter.writeLine(log, line);
+                if (logBuffer != null) {
+                    logBuffer.appendLine(line);
+                }
+                return;
+            }
+            long now = System.currentTimeMillis();
+            if (now >= nextNotice) {
+                String line = "waiting for model_proxy on 127.0.0.1:"
+                        + ModelProxyGate.PROXY_PORT + " (" + elapsed + "ms elapsed)";
+                Log.i(TAG, line);
+                if (!loggedWait) {
+                    CoreLogWriter.writeLine(log, line);
+                    loggedWait = true;
+                }
+                nextNotice = now + PROXY_NOTICE_INTERVAL_MS;
+            }
+            ProcessUtils.sleep(PROXY_POLL_INTERVAL_MS);
         }
     }
 

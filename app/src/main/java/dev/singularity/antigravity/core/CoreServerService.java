@@ -84,11 +84,14 @@ public final class CoreServerService extends Service {
 
     private void startModelProxy() {
         modelProxyEnabled = true;
+        // The core supervisor blocks on this gate before launching language_server.
+        ModelProxyGate.setEnabled(true);
         modelProxyThread = new Thread(() -> {
             File prefixDir = new File(getFilesDir(), "usr");
             File logsDir = new File(getFilesDir(), "logs");
             logsDir.mkdirs();
             File logFile = new File(logsDir, "model-proxy.log");
+            File rawOutputLog = new File(logsDir, "model-proxy.out.log");
             File dataDir = new File(getFilesDir(), ".gemini/antigravity-app");
             dataDir.mkdirs();
             try {
@@ -185,6 +188,13 @@ public final class CoreServerService extends Service {
                         }
                     }
                     pb.directory(getFilesDir());
+                    // Drain the child's stdout/stderr into a file: a pipe nobody reads
+                    // fills up and blocks node forever, and native crash output would be
+                    // lost. The proxy itself appends uncaughtException /
+                    // unhandledRejection traces to model-proxy.log synchronously, so those
+                    // survive even when stdout/stderr cannot be read.
+                    pb.redirectErrorStream(true);
+                    pb.redirectOutput(ProcessBuilder.Redirect.appendTo(rawOutputLog));
 
                     Process p = pb.start();
                     modelProxyProcess = p;
@@ -196,7 +206,9 @@ public final class CoreServerService extends Service {
                         break;
                     }
 
-                    Log.w(TAG, "Model proxy terminated with exit code " + exitCode + ". Restarting in 2s...");
+                    Log.w(TAG, "Model proxy terminated with exit code " + exitCode
+                            + " (see " + logFile.getAbsolutePath() + " and "
+                            + rawOutputLog.getAbsolutePath() + "). Restarting in 2s...");
                     Thread.sleep(2000);
                 } catch (InterruptedException ie) {
                     break;
@@ -285,6 +297,8 @@ public final class CoreServerService extends Service {
     }
 
     private void stopModelProxy() {
+        // Release the core launch gate first: a stopped proxy must not block restarts.
+        ModelProxyGate.setEnabled(false);
         modelProxyEnabled = false;
         if (modelProxyThread != null) {
             modelProxyThread.interrupt();
