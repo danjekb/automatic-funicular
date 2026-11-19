@@ -135,8 +135,8 @@ function validateCustomModel(model) {
     if (m.allowUnauthorized !== undefined && typeof m.allowUnauthorized !== 'boolean') {
         return { valid: false, error: 'allowUnauthorized must be a boolean' };
     }
-    if (m.apiFormat !== undefined && !['openai', 'anthropic', 'google'].includes(m.apiFormat)) {
-        return { valid: false, error: 'apiFormat must be openai, anthropic or google' };
+    if (m.apiFormat !== undefined && !['openai', 'anthropic', 'google', 'passthrough'].includes(m.apiFormat)) {
+        return { valid: false, error: 'apiFormat must be openai, anthropic, google or passthrough' };
     }
     if (m.provider === 'google-cloudcode' && m.apiFormat !== undefined && m.apiFormat !== 'google')
         return { valid: false, error: 'Google Cloud Code requires the google API format' };

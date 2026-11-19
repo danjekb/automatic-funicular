@@ -1248,6 +1248,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 ['openai', 'OpenAI compatible'],
                 ['anthropic', 'Anthropic Messages'],
                 ['google', 'Google Gemini'],
+                ['passthrough', 'Pass-through (no gateway translation)'],
             ], existing?.apiFormat || preset().apiFormat);
             const grid = element('div', 'agy-grid');
             const modelId = field(grid, 'Provider model ID', 'agy-model-id', mode === 'discover' ? '' : existing?.externalModelName || '');

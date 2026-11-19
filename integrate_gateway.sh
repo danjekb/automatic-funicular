@@ -32,7 +32,51 @@ fi
 PROXY_DST="$SCRIPT_DIR/env/overlay/lib/model_proxy"
 echo "[*] Staging model proxy into $PROXY_DST..."
 mkdir -p "$PROXY_DST/proxy/node_modules/electron-log"
-cp -r "$ADD_MODEL_DIR/dist"/* "$PROXY_DST/proxy/"
+
+# Custom models are a raw pass-through: the configured endpoint (FreeLLMAPI and
+# similar gateways) owns format translation, so the upstream translator modules
+# are excluded and this fork's transport files are never overwritten.
+#   - proxy/proxy/translators/        schema + message + tool-call converters
+#   - proxy/proxy/registry.js         translation dispatch and URL rewriting
+#   - proxy/proxy/artifactMetadata.js response schema normalizer
+#   - proxy/proxy/reasoningReplay.js  thought/reasoning replay cache
+#   - proxy/proxy/passthrough.js      fork-owned raw HTTP/SSE transport
+#   - proxy/proxy/customRequest.js    fork-owned pass-through alias
+#   - proxy/proxy.js                  fork-owned routing (raw custom-model path)
+tar -C "$ADD_MODEL_DIR/dist" \
+    --exclude='./proxy/proxy/translators' \
+    --exclude='./proxy/proxy/translators/*' \
+    --exclude='./proxy/proxy/registry.*' \
+    --exclude='./proxy/proxy/artifactMetadata.*' \
+    --exclude='./proxy/proxy/reasoningReplay.*' \
+    --exclude='./proxy/proxy/passthrough.*' \
+    --exclude='./proxy/proxy/customRequest.*' \
+    --exclude='./proxy/proxy.js' \
+    --exclude='./proxy/proxy.js.map' \
+    --exclude='./proxy/proxy.d.ts' \
+    --exclude='./proxy/proxy.d.ts.map' \
+    -cf - . | tar -C "$PROXY_DST/proxy" -xf -
+
+# Purge anything a previous sync may have left behind.
+rm -rf "$PROXY_DST/proxy/proxy/translators"
+rm -f "$PROXY_DST/proxy/proxy/registry.js" "$PROXY_DST/proxy/proxy/registry.js.map" \
+    "$PROXY_DST/proxy/proxy/registry.d.ts" "$PROXY_DST/proxy/proxy/registry.d.ts.map" \
+    "$PROXY_DST/proxy/proxy/artifactMetadata.js" "$PROXY_DST/proxy/proxy/artifactMetadata.js.map" \
+    "$PROXY_DST/proxy/proxy/artifactMetadata.d.ts" "$PROXY_DST/proxy/proxy/artifactMetadata.d.ts.map" \
+    "$PROXY_DST/proxy/proxy/reasoningReplay.js" "$PROXY_DST/proxy/proxy/reasoningReplay.js.map" \
+    "$PROXY_DST/proxy/proxy/reasoningReplay.d.ts" "$PROXY_DST/proxy/proxy/reasoningReplay.d.ts.map"
+
+for required in "$PROXY_DST/proxy/proxy/passthrough.js" "$PROXY_DST/proxy/proxy/customRequest.js"; do
+    [ -f "$required" ] || {
+        echo "[ERROR] Missing fork-owned pass-through transport: $required" >&2
+        exit 1
+    }
+
+done
+if [ -d "$PROXY_DST/proxy/proxy/translators" ]; then
+    echo "[ERROR] Translation modules are still present in $PROXY_DST/proxy." >&2
+    exit 1
+fi
 
 # Ensure electron-log shim is in place
 if [ ! -f "$PROXY_DST/proxy/node_modules/electron-log/index.js" ]; then
@@ -202,6 +246,8 @@ echo "[*] Rebuilding web bundles..."
 echo "====================================================================="
 echo "[OK] Model Gateway integration complete and verified!"
 echo "     - Proxy bundled at: env/overlay/lib/model_proxy"
+echo "     - Transport:        raw HTTP/SSE pass-through (no translation)"
 echo "     - CLI management:   env/overlay/bin/agy-models"
 echo "     - Web hook:         web/src/core/fetch-rewrite.js -> SetCloudCodeURL"
+echo "     - Tests:            bash modules/gateway/tests/run_all.sh"
 echo "====================================================================="

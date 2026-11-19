@@ -1,5 +1,5 @@
 /** Shared provider presets. Existing saved models retain their historical wire format. */
-export type ApiFormat = 'openai' | 'anthropic' | 'google';
+export type ApiFormat = 'openai' | 'anthropic' | 'google' | 'passthrough';
 export interface ProviderPreset {
     id: string;
     label: string;

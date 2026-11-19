@@ -696,85 +696,16 @@ function forwardToGoogle(req, res, reqBody, nativeSubagent, cloudCodeOrigin) {
     }
     proxyReq.end();
 }
-// ─── File Data Resolver ────────────────────────────────────────────────────
-async function resolveFileData(body, reqHeaders, downstream) {
-    const contents = body.contents;
-    if (!contents)
-        return;
-    const authHeader = (reqHeaders['authorization'] || reqHeaders['Authorization'] || '');
-    for (const item of contents) {
-        if (!item.parts)
-            continue;
-        for (let i = 0; i < item.parts.length; i++) {
-            if (stoppingProxy || downstream.destroyed || downstream.writableEnded)
-                return;
-            const p = item.parts[i];
-            const fd = p.fileData;
-            if (!fd?.fileUri)
-                continue;
-            // Keep image bytes/URLs intact for the wire-format translator. In particular,
-            // never decode a binary image as UTF-8 or send incoming Google credentials
-            // to an arbitrary image URL. Remote images must be accessible to the provider.
-            if ((typeof fd.mimeType === 'string' && /^image\//i.test(fd.mimeType.trim())) ||
-                /^data:image\//i.test(fd.fileUri))
-                continue;
-            try {
-                const uri = fd.fileUri;
-                let fileContent = '';
-                if (uri.startsWith('file://')) {
-                    // Same rule as the translators: local paths only, never a network share.
-                    const fp = (0, loopbackSecurity_1.localFilePath)(new URL(uri));
-                    if (fs.existsSync(fp))
-                        fileContent = fs.readFileSync(fp, 'utf-8');
-                }
-                else if (authHeader && (0, loopbackSecurity_1.authenticatedGoogleFileUrl)(uri)) {
-                    fileContent = await downloadFileContent(uri, authHeader);
-                }
-                if (fileContent) {
-                    item.parts[i] = { text: '[File content]:\n\n' + fileContent };
-                }
-            }
-            catch (e) {
-                electron_log_1.default.warn('[Proxy] File resolve failed:', e.message);
-            }
-        }
-    }
-}
-function downloadFileContent(url, authHeader) {
-    return new Promise((resolve, reject) => {
-        const u = (0, loopbackSecurity_1.authenticatedGoogleFileUrl)(url);
-        if (!u) {
-            reject(new Error('Authenticated file downloads require a Google API HTTPS URL'));
-            return;
-        }
-        const request = https.request({
-            hostname: u.hostname,
-            path: u.pathname + u.search,
-            method: 'GET',
-            headers: { Authorization: authHeader },
-            timeout: 30000,
-        }, (res) => {
-            res.on('error', reject);
-            if (res.statusCode !== 200) {
-                res.resume();
-                reject(new Error('HTTP ' + res.statusCode));
-                return;
-            }
-            let d = '';
-            res.on('data', (c) => (d += c.toString()));
-            res.on('end', () => resolve(d));
-        });
-        request.on('error', reject);
-        request.on('timeout', () => request.destroy(new Error('File download timed out')));
-        trackUpstream(request);
-        request.end();
-    });
-}
 // ─── Custom Model Request Handler ─────────────────────────────────────────
-function handleCustomModelRequest(res, model, body, isStream, cloudEnvelope = true) {
+/**
+ * Raw pass-through for custom models. The inbound body, path, query and headers
+ * are forwarded to the configured endpoint unchanged and the upstream response
+ * is streamed back untouched: the endpoint owns format translation.
+ */
+function handleCustomModelRequest(req, res, model, rawBody) {
     if (res.destroyed || res.writableEnded || rejectDuringShutdown(res))
         return;
-    void (0, customRequest_1.runCustomModelRequest)(res, model, body, isStream, loadCustomModels(), cloudEnvelope);
+    void (0, customRequest_1.runPassthroughRequest)(res, model, rawBody, req.headers, req.url, req.method);
 }
 function readVarint(buf, offset) {
     let result = 0;
@@ -1249,19 +1180,13 @@ function handleRequest(req, res) {
                         actualGeminiBody.conversationId = reqJson.conversationId;
                     if (!actualGeminiBody.labels && reqJson.labels && typeof reqJson.labels === 'object')
                         actualGeminiBody.labels = reqJson.labels;
-                    const prepared = subagentRouting_1.subagentRouting.prepareRequest(actualGeminiBody, (selector) => (0, subagentModels_1.resolveConfiguredSubagentModel)(customModels, selector)?.name);
-                    const matchedCustomModel = prepared.modelName
-                        ? (0, subagentModels_1.resolveConfiguredSubagentModel)(customModels, prepared.modelName)
-                        : matchCustomModel(customModels, modelName, modelId);
+                    const matchedCustomModel = matchCustomModel(customModels, modelName, modelId);
                     if (matchedCustomModel) {
-                        electron_log_1.default.info(`[Proxy] Intercepting Cloud Code generation for custom model: ${modelName} => ${matchedCustomModel.displayName}`);
-                        const isStream = req.url.includes('streamGenerateContent') || req.url.includes('alt=sse');
-                        // Resolve fileData URIs then route to translator
-                        resolveFileData(prepared.body, req.headers, res).then(() => {
-                            handleCustomModelRequest(res, matchedCustomModel, prepared.body, isStream);
-                        });
+                        electron_log_1.default.info(`[Proxy] Pass-through Cloud Code generation for custom model: ${modelName} => ${matchedCustomModel.displayName}`);
+                        handleCustomModelRequest(req, res, matchedCustomModel, fullBody);
                         return;
                     }
+                    const prepared = subagentRouting_1.subagentRouting.prepareRequest(actualGeminiBody, (selector) => (0, subagentModels_1.resolveConfiguredSubagentModel)(customModels, selector)?.name);
                     // Restore history and expose custom subagent selectors to native parents,
                     // preserving the original placement of Cloud Code envelope metadata.
                     const nativeBody = {
@@ -1309,16 +1234,12 @@ function handleRequest(req, res) {
             const customModels = loadCustomModels();
             try {
                 const geminiBody = JSON.parse(bodyStr);
-                const prepared = subagentRouting_1.subagentRouting.prepareRequest(geminiBody, (selector) => (0, subagentModels_1.resolveConfiguredSubagentModel)(customModels, selector)?.name);
-                const matchedCustomModel = prepared.modelName
-                    ? (0, subagentModels_1.resolveConfiguredSubagentModel)(customModels, prepared.modelName)
-                    : matchCustomModel(customModels, matchedModelName);
+                const matchedCustomModel = matchCustomModel(customModels, matchedModelName);
                 if (matchedCustomModel) {
-                    resolveFileData(prepared.body, req.headers, res).then(() => {
-                        handleCustomModelRequest(res, matchedCustomModel, prepared.body, isStandardStream, false);
-                    });
+                    handleCustomModelRequest(req, res, matchedCustomModel, fullBody);
                     return;
                 }
+                const prepared = subagentRouting_1.subagentRouting.prepareRequest(geminiBody, (selector) => (0, subagentModels_1.resolveConfiguredSubagentModel)(customModels, selector)?.name);
                 proxyToGoogle(req, res, Buffer.from(JSON.stringify({ ...geminiBody, contents: prepared.body.contents, tools: prepared.body.tools })), hasSubagentTool(geminiBody)
                     ? {
                         context: prepared.context,

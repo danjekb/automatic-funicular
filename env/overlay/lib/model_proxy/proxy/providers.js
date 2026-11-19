@@ -46,6 +46,9 @@ exports.PROVIDERS = [
     preset('litellm', 'LiteLLM', 'http://localhost:4000/v1/chat/completions', 'openai', false),
     preset('aphrodite', 'Aphrodite', 'http://localhost:2242/v1/chat/completions', 'openai', false),
     preset('custom', 'Custom endpoint', '', 'openai', false),
+    // Endpoints that already translate formats (FreeLLMAPI and similar gateways):
+    // requests and responses are forwarded untouched.
+    preset('free-llm-api', 'FreeLLMAPI (raw pass-through)', '', 'passthrough', false),
 ];
 function getProvider(id) {
     return exports.PROVIDERS.find((provider) => provider.id === id);
@@ -94,6 +97,8 @@ function workersAiAccountPath(apiUrl, provider) {
 function resolveApiFormat(provider, override) {
     if (override)
         return override;
+    if (provider === 'free-llm-api')
+        return 'passthrough';
     if (['deepseek', 'kimi', 'fireworks', 'lmstudio', 'llamacpp'].includes(provider))
         return 'anthropic';
     return getProvider(provider)?.apiFormat || 'openai';
