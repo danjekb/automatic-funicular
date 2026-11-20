@@ -102,6 +102,9 @@ public final class CoreServerService extends Service {
         modelProxyEnabled = true;
         // The core supervisor blocks on this gate before launching language_server.
         ModelProxyGate.setEnabled(true);
+        // A listener inherited from a previous session is cleaned up below; until
+        // this launch owns the port the core must not start.
+        ModelProxyGate.setOwned(false);
         modelProxyThread = new Thread(() -> {
             File prefixDir = new File(getFilesDir(), "usr");
             File logsDir = new File(getFilesDir(), "logs");
@@ -181,6 +184,7 @@ public final class CoreServerService extends Service {
                 BootTrace.append("model_proxy prerequisites missing after 72s: " + missing);
             }
 
+            boolean adopted = false;
             while (!destroyed && modelProxyEnabled) {
                 File nodeExe = findNodeExecutable();
                 File proxyEntry = findProxyEntry();
@@ -201,8 +205,30 @@ public final class CoreServerService extends Service {
                     // A stale child from a previous session (or the node process
                     // behind an `su -c` wrapper, which destroy() cannot reach) still
                     // owns the port; the new proxy would exit with EADDRINUSE and
-                    // never log READY. Clear them before every spawn.
-                    killStaleModelProxyProcesses();
+                    // never log READY. Clear it before the first spawn, then only
+                    // start a replacement once the port is actually free.
+                    if (!adopted) {
+                        killStaleModelProxyProcesses();
+                    }
+                    if (ModelProxyGate.isAccepting()) {
+                        // Something that survived the cleanup still holds the port.
+                        // Spawning now would only fail; use the listener as it is
+                        // and take over as soon as it goes away.
+                        if (!adopted) {
+                            adopted = true;
+                            ModelProxyGate.setOwned(true);
+                            String line = "model_proxy port " + PROXY_PORT
+                                    + " is held by another process; reusing it until it exits";
+                            Log.w(TAG, line);
+                            BootTrace.append(line);
+                            if (logBuffer != null) {
+                                logBuffer.appendLine(line);
+                            }
+                        }
+                        ProcessUtils.sleep(5000);
+                        continue;
+                    }
+                    adopted = false;
                     Log.i(TAG, "Starting local model adapter proxy on port " + PROXY_PORT + "...");
                     dev.singularity.antigravity.shell.RootBridge rootBridge =
                             new dev.singularity.antigravity.shell.RootBridge(CoreServerService.this);
@@ -268,6 +294,11 @@ public final class CoreServerService extends Service {
                     if (logBuffer != null) {
                         logBuffer.appendLine(spawned);
                     }
+
+                    // The spawn only happens on a free port, so from here on the
+                    // listener belongs to this launch and the core gate may open as
+                    // soon as it accepts.
+                    ModelProxyGate.setOwned(true);
 
                     int exitCode = p.waitFor();
                     modelProxyProcess = null;
@@ -467,6 +498,20 @@ public final class CoreServerService extends Service {
      * our own uid) and is repeated through su (works for root-owned children).
      */
     private void killStaleModelProxyProcesses() {
+        // A proxy from a previous session serves its own management route, so ask
+        // it to release the port before any signal is needed. This is the only
+        // route that works when the old child is root-owned and reparented, which
+        // is exactly what an app restart after an APK update leaves behind.
+        if (requestStaleProxyShutdown()) {
+            long stopDeadline = ModelProxyGate.nowMs() + 2500;
+            while (ModelProxyGate.nowMs() < stopDeadline && ModelProxyGate.isAccepting()) {
+                ProcessUtils.sleep(100);
+            }
+            if (!ModelProxyGate.isAccepting()) {
+                BootTrace.append("stale model_proxy released port " + PROXY_PORT
+                        + " through its management route");
+            }
+        }
         java.util.LinkedHashSet<Integer> pids = new java.util.LinkedHashSet<>();
         int myPid = android.os.Process.myPid();
         File[] entries = new File("/proc").listFiles();
@@ -513,6 +558,7 @@ public final class CoreServerService extends Service {
                     bridge.exec("for p in /proc/[0-9]*; do "
                             + "if tr '\\0' ' ' < $p/cmdline 2>/dev/null | grep -q '[m]odel_proxy/entry.js'; then "
                             + "kill -9 ${p#/proc/} 2>/dev/null; fi; done; true");
+                    killPortOwnerViaRoot();
                 }
             } catch (Exception ignored) {
             }
@@ -525,6 +571,79 @@ public final class CoreServerService extends Service {
             ProcessUtils.sleep(100);
         }
         Log.w(TAG, "model_proxy port " + PROXY_PORT + " still accepting after stale-process cleanup");
+    }
+
+    /**
+     * Kill whatever is listening on the proxy port by matching the listening
+     * socket's inode against /proc/<pid>/fd. Root sees every process, so this
+     * also reaches a root-owned orphan whose cmdline and path this app cannot
+     * even read; the shell needs no quoting because every value is numeric here.
+     */
+    private void killPortOwnerViaRoot() {
+        dev.singularity.antigravity.shell.RootBridge bridge =
+                new dev.singularity.antigravity.shell.RootBridge(this);
+        if (!bridge.isAvailable()) {
+            return;
+        }
+        String sockets = bridge.exec(
+                "awk '$4~/^0A$/ {print $2, $10}' /proc/net/tcp /proc/net/tcp6 2>/dev/null");
+        if (sockets.isEmpty() || sockets.startsWith("error:")) {
+            return;
+        }
+        String suffix = ":" + String.format("%04X", PROXY_PORT);
+        for (String line : sockets.split("\n")) {
+            String[] parts = line.trim().split("\\s+");
+            if (parts.length < 2 || !parts[0].endsWith(suffix)) {
+                continue;
+            }
+            // The scan touches every fd in /proc; bound it so a slow device
+            // cannot hold the proxy supervisor here.
+            String owners = bridge.exec(
+                    "timeout 8 grep -Fls socket:[" + parts[1] + "] /proc/[0-9]*/fd/* 2>/dev/null");
+            if (owners.isEmpty() || owners.startsWith("error:")) {
+                continue;
+            }
+            java.util.regex.Matcher match = java.util.regex.Pattern
+                    .compile("/proc/(\\d+)/fd/").matcher(owners);
+            while (match.find()) {
+                String pid = match.group(1);
+                Log.w(TAG, "Terminating model_proxy port " + PROXY_PORT
+                        + " owner (PID " + pid + ")");
+                BootTrace.append("model_proxy port owner PID " + pid + " killed");
+                bridge.exec("kill -9 " + pid);
+            }
+        }
+    }
+
+    /**
+     * Ask a leftover model_proxy to stop through its loopback management route.
+     * A loopback caller needs no token, and the instance answers before it exits,
+     * so the port is free for the proxy this launch starts.
+     */
+    private boolean requestStaleProxyShutdown() {
+        java.net.HttpURLConnection connection = null;
+        try {
+            java.net.URL url = new java.net.URL(
+                    "http://127.0.0.1:" + PROXY_PORT + "/_addon/stop");
+            connection = (java.net.HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(1000);
+            connection.setReadTimeout(1000);
+            connection.setDoOutput(true);
+            connection.setFixedLengthStreamingMode(0);
+            connection.getOutputStream().close();
+            int code = connection.getResponseCode();
+            return code >= 200 && code < 300;
+        } catch (Exception notRunning) {
+            return false;
+        } finally {
+            if (connection != null) {
+                try {
+                    connection.disconnect();
+                } catch (Exception ignored) {
+                }
+            }
+        }
     }
 
     private static String readCmdline(File cmdlineFile) {

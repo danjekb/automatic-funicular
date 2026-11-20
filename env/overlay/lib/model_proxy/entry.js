@@ -105,6 +105,30 @@ function installFatalHandlers(logFile) {
   });
 }
 
+/**
+ * PID of the Android app process that owns this proxy, or 0 when it cannot be
+ * identified. A proxy spawned through `su -c` is not killed when the app dies:
+ * it is reparented, keeps port 50996 bound and makes every later launch fail
+ * with EADDRINUSE, so the proxy shipped by the next APK never runs.
+ */
+function findOwnerPid() {
+  let pid = process.ppid;
+  for (let depth = 0; depth < 8 && pid > 1; depth++) {
+    try {
+      const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+      if (cmdline.includes('dev.singularity.antigravity')) return pid;
+    } catch { /* already gone; keep walking up */ }
+    try {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      pid = Number(fields[1]);
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.logFile) {
@@ -124,6 +148,7 @@ async function main() {
   const { startStandaloneService } = require('./proxy/standaloneService.js');
   let shuttingDown = false;
   let service;
+  let ownerWatch = null;
 
   const cleanupState = () => {
     try {
@@ -139,6 +164,10 @@ async function main() {
   const shutdown = async (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
+    if (ownerWatch) {
+      clearInterval(ownerWatch);
+      ownerWatch = null;
+    }
     console.log(`[model_proxy] Shutting down (${signal})...`);
     cleanupState();
     try {
@@ -160,6 +189,22 @@ async function main() {
       process.exit(0);
     },
   });
+
+  // Exit with the app instead of lingering as an orphan holding the port.
+  const ownerPid = findOwnerPid();
+  if (ownerPid > 0) {
+    let misses = 0;
+    ownerWatch = setInterval(() => {
+      try {
+        fs.statSync(`/proc/${ownerPid}`);
+        misses = 0;
+      } catch {
+        // Two consecutive misses: a single failed stat must not end a session.
+        if (++misses >= 2) void shutdown('app exited');
+      }
+    }, 2000);
+    if (typeof ownerWatch.unref === 'function') ownerWatch.unref();
+  }
 
   const statePayload = {
     version: 1,

@@ -31,6 +31,14 @@ public final class ModelProxyGate {
     /** False while the proxy is intentionally stopped, so the core is not blocked. */
     private static volatile boolean enabled = true;
 
+    /**
+     * True once this launch spawned (or deliberately adopted) the proxy it is
+     * waiting for. A listener left behind by a previous session must not open
+     * the gate: the core would start against a proxy that is about to be
+     * replaced and lose every request made during the swap.
+     */
+    private static volatile boolean owned = false;
+
     private ModelProxyGate() {
     }
 
@@ -45,6 +53,23 @@ public final class ModelProxyGate {
     /** Monotonic milliseconds since boot; immune to wall-clock changes. */
     public static long nowMs() {
         return SystemClock.elapsedRealtime();
+    }
+
+    public static void setOwned(boolean value) {
+        owned = value;
+    }
+
+    /** True when the listener on the proxy port belongs to this launch. */
+    public static boolean isOwned() {
+        return owned;
+    }
+
+    /**
+     * True when this launch's proxy is listening. The core gate waits for this
+     * instead of a bare TCP connect so a stale listener cannot satisfy it.
+     */
+    public static boolean isReady() {
+        return owned && isAccepting();
     }
 
     /** True when a TCP connection to the proxy port is accepted right now. */

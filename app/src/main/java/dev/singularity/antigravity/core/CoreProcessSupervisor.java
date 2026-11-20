@@ -191,9 +191,9 @@ public final class CoreProcessSupervisor {
         long start = ModelProxyGate.nowMs();
         long nextNotice = 0;
         while (!stopping) {
-            if (ModelProxyGate.isAccepting()) {
+            if (ModelProxyGate.isReady()) {
                 long waited = Math.max(0, ModelProxyGate.nowMs() - start);
-                String line = "model_proxy accepting on 127.0.0.1:"
+                String line = "model_proxy ready on 127.0.0.1:"
                         + ModelProxyGate.PROXY_PORT + " after " + waited + "ms; launching core";
                 Log.i(TAG, line);
                 CoreLogWriter.writeLine(log, line);

@@ -18,10 +18,18 @@ function guardLoopbackRequest(req, res, languageServerPort) {
     const allowedOrigins = validPort(port) ? loopbackOrigins(port, ['http:']) : [];
     if (validPort(languageServerPort))
         allowedOrigins.push(...loopbackOrigins(languageServerPort, ['http:', 'https:']));
+    // The readiness probe is read-only and carries no credentials; the app's
+    // WebView reads it from the language server's loopback origin, which this
+    // process cannot name when it does not route the language server itself.
+    const healthProbe = req.method === 'GET' && (req.url === '/health' || req.url === '/healthz');
+    const loopbackOrigin = typeof req.headers.origin === 'string' &&
+        /^https?:\/\/(127\.0\.0\.1|localhost)(:\d{1,5})?$/.test(req.headers.origin);
     if (duplicate ||
         !validPort(port) ||
         ![`127.0.0.1:${port}`, `localhost:${port}`].includes(req.headers.host || '') ||
-        (req.headers.origin !== undefined && !allowedOrigins.includes(req.headers.origin))) {
+        (req.headers.origin !== undefined &&
+            !allowedOrigins.includes(req.headers.origin) &&
+            !(healthProbe && loopbackOrigin))) {
         res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify({ error: 'Service is available only at its loopback origin' }));
         return false;

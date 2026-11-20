@@ -978,7 +978,13 @@ function handleRequest(req, res) {
     // Health check
     if (req.method === 'GET' && (req.url === '/health' || req.url === '/healthz')) {
         const memUsage = process.memoryUsage();
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        // Read-only readiness probe: the app's WebView loads from the language
+        // server origin and must be able to read it across origins.
+        res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+            'Access-Control-Allow-Origin': req.headers.origin || '*',
+        });
         res.end(JSON.stringify({
             status: 'ok',
             uptime: process.uptime(),
