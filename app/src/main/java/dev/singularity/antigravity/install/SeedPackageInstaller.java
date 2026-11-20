@@ -20,7 +20,9 @@ import java.util.concurrent.TimeUnit;
 public final class SeedPackageInstaller {
 
     private static final String TAG = "SeedPackageInstaller";
-    private static final long RETRY_BACKOFF_MS = TimeUnit.HOURS.toMillis(6);
+    // Retry often enough that a prefix which lost node is repaired in minutes,
+    // not half a day: the model proxy cannot start without it.
+    private static final long RETRY_BACKOFF_MS = TimeUnit.MINUTES.toMillis(10);
     private static final long COMMAND_TIMEOUT_MINUTES = 20;
     private static final String STATE_NAME = ".agy-env-seeds.properties";
 
@@ -155,7 +157,11 @@ public final class SeedPackageInstaller {
 
     private static boolean isPackageAvailable(Context context, File prefix,
                                               String packageName, File logFile) {
-        String executable = "python".equals(packageName) ? "python3" : packageName;
+        // Package name != binary name: nodejs ships bin/node, python ships
+        // bin/python3. Checking the package name made nodejs look permanently
+        // missing, so the proxy waited on an install that the backoff deferred.
+        String executable = "python".equals(packageName) ? "python3"
+                : "nodejs".equals(packageName) ? "node" : packageName;
         File binary = new File(prefix, "bin/" + executable);
         if (!binary.isFile()) {
             return false;

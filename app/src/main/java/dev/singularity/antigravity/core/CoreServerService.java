@@ -90,11 +90,7 @@ public final class CoreServerService extends Service {
     }
 
     private File findNodeExecutable() {
-        File usrNode = new File(getFilesDir(), "usr/bin/node");
-        if (usrNode.canExecute()) return usrNode;
-        File nodeWrapper = new File(getFilesDir(), "runtime/bin/node");
-        if (nodeWrapper.canExecute()) return nodeWrapper;
-        return null;
+        return dev.singularity.antigravity.install.NodeProvisioner.find(this);
     }
 
     private void startModelProxy() {
@@ -153,10 +149,22 @@ public final class CoreServerService extends Service {
 
             // Wait for env extraction and package seeding if starting on a clean install
             boolean found = false;
+            boolean provisionTried = false;
             for (int i = 0; i < 60 && !destroyed && modelProxyEnabled; i++) {
                 if (findNodeExecutable() != null && findProxyEntry() != null) {
                     found = true;
                     break;
+                }
+                // node lives only in the mutable prefix (it arrives with the
+                // nodejs seed package); a reinstalled prefix has none. Install it
+                // once while the core gate is still waiting for this proxy.
+                if (i == 15 && !provisionTried && findNodeExecutable() == null) {
+                    provisionTried = true;
+                    dev.singularity.antigravity.install.NodeProvisioner.ensure(this);
+                    if (findNodeExecutable() != null && findProxyEntry() != null) {
+                        found = true;
+                        break;
+                    }
                 }
                 try {
                     Thread.sleep(1200);
