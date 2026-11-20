@@ -43,6 +43,8 @@ public final class CoreServerService extends Service {
     private static final String PROXY_STDOUT_LOG = "proxy.log";
     /** Grace period for a SIGTERM'd proxy child before it is killed outright. */
     private static final long PROXY_STOP_GRACE_MS = 1500;
+    /** Marks the extracted proxy tree as matching this APK build. */
+    private static final String PROXY_ASSET_MARKER = ".overlay-version";
 
     @Override
     public void onCreate() {
@@ -127,15 +129,33 @@ public final class CoreServerService extends Service {
             File tmpDir = new File(getFilesDir(), "usr/tmp");
             tmpDir.mkdirs();
 
-            try {
-                dev.singularity.antigravity.util.AssetUnpacker.copyTree(getAssets(), "env/overlay/lib/model_proxy", new File(getFilesDir(), "usr/lib/model_proxy"));
-            } catch (Exception e) {
-                Log.w(TAG, "Failed to sync model_proxy from assets: " + e.getMessage());
+            // Copying the whole proxy tree (node_modules included) on every start
+            // kept node from being spawned for well over the 120s core gate on a
+            // cold APK update: the copy ran synchronously before the spawn. Copy
+            // only when this APK has not been extracted yet, then reuse it.
+            File proxyRoot = new File(getFilesDir(), "usr/lib/model_proxy");
+            long apkStamp = apkUpdateStamp();
+            if (proxyAssetsUpToDate(proxyRoot, apkStamp)) {
+                BootTrace.append("model_proxy assets up to date; skipping copy");
+            } else {
+                long copyStart = ModelProxyGate.nowMs();
+                try {
+                    dev.singularity.antigravity.util.AssetUnpacker.copyTree(
+                            getAssets(), "env/overlay/lib/model_proxy", proxyRoot);
+                    writeProxyAssetMarker(proxyRoot, apkStamp);
+                    BootTrace.append("model_proxy assets copied in "
+                            + (ModelProxyGate.nowMs() - copyStart) + "ms");
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to sync model_proxy from assets: " + e.getMessage());
+                    BootTrace.append("model_proxy asset sync failed: " + e.getMessage());
+                }
             }
 
             // Wait for env extraction and package seeding if starting on a clean install
+            boolean found = false;
             for (int i = 0; i < 60 && !destroyed && modelProxyEnabled; i++) {
                 if (findNodeExecutable() != null && findProxyEntry() != null) {
+                    found = true;
                     break;
                 }
                 try {
@@ -144,12 +164,23 @@ public final class CoreServerService extends Service {
                     return;
                 }
             }
+            if (!found) {
+                File node = findNodeExecutable();
+                File entry = findProxyEntry();
+                String missing = "node=" + (node != null ? node.getAbsolutePath() : "missing")
+                        + " entry=" + (entry != null ? entry.getAbsolutePath() : "missing");
+                Log.w(TAG, "model_proxy prerequisites still missing after 72s: " + missing);
+                BootTrace.append("model_proxy prerequisites missing after 72s: " + missing);
+            }
 
             while (!destroyed && modelProxyEnabled) {
                 File nodeExe = findNodeExecutable();
                 File proxyEntry = findProxyEntry();
                 if (nodeExe == null || proxyEntry == null) {
                     Log.w(TAG, "node or model_proxy not found, sleeping 5s before retry");
+                    BootTrace.append("model_proxy not spawned: node="
+                            + (nodeExe != null ? nodeExe.getAbsolutePath() : "missing")
+                            + " entry=" + (proxyEntry != null ? proxyEntry.getAbsolutePath() : "missing"));
                     try {
                         Thread.sleep(5000);
                     } catch (InterruptedException e) {
@@ -261,6 +292,41 @@ public final class CoreServerService extends Service {
             }
         }, "ModelProxySupervisor");
         modelProxyThread.start();
+    }
+
+    /** APK lastUpdateTime, or -1 when it cannot be read. */
+    private long apkUpdateStamp() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private static boolean proxyAssetsUpToDate(File proxyRoot, long apkStamp) {
+        if (apkStamp <= 0 || !new File(proxyRoot, "entry.js").isFile()) {
+            return false;
+        }
+        File marker = new File(proxyRoot, PROXY_ASSET_MARKER);
+        if (!marker.isFile()) {
+            return false;
+        }
+        try {
+            String recorded = dev.singularity.antigravity.util.IoUtil.readAll(
+                    new java.io.FileInputStream(marker), "UTF-8").trim();
+            return recorded.equals(String.valueOf(apkStamp));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static void writeProxyAssetMarker(File proxyRoot, long apkStamp) {
+        try {
+            dev.singularity.antigravity.util.AtomicFileWriter.writeText(
+                    new File(proxyRoot, PROXY_ASSET_MARKER), apkStamp + "\n");
+        } catch (Exception e) {
+            Log.w(TAG, "cannot write proxy asset marker: " + e.getMessage());
+        }
     }
 
     private void startBackgroundDaemon() {
