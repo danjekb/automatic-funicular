@@ -169,6 +169,8 @@ function customCloudCodeCatalog(upstream = {}) {
         const cap = (0, modelUtils_1.detectModelCapabilities)(model);
         const nativeCap = (0, modelUtils_1.nativeCatalogCapabilities)(model);
         const modelExperiments = (0, modelUtils_1.nativeModelExperiments)(model);
+        // The agent trajectory budget comes from these numbers; log what the IDE receives.
+        electron_log_1.default.info(`[Proxy] Catalog entry ${model.displayName || model.name}: maxTokens=${cap.maxTokens}, maxOutputTokens=${cap.maxOutputTokens}, nativeMaxTokens=${nativeCap.maxTokens}`);
         const capabilities = getAdvertisedModelCapabilities(model);
         return {
             slug,

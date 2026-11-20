@@ -43,6 +43,20 @@ const node_crypto_1 = require("node:crypto");
 const modelCatalog_1 = require("./proxy/modelCatalog");
 /** Verified against the Antigravity IDE 2.5.5 Model enum: M0..M650 = 1000..1650. */
 exports.NATIVE_MODEL_CAPACITY = 651;
+/**
+ * Placeholders that the bundled language_server 2.11.0 maps to a model profile
+ * (`models` / `model_profiles` in its embedded config). A placeholder outside
+ * this set has no profile, so an agent turn serializes a message budget of 0
+ * and dies with "maxMessageTokens must be positive, got 0".
+ */
+const PROFILE_BACKED_PLACEHOLDERS = [
+    15, 16, 18, 20, 26, 35, 36, 37, 47, 50, 71, 72, 73, 78, 84, 124, 125, 132, 133, 148, 149,
+    186, 187, 196, 198, 261, 262, 269, 270, 271, 289, 291, 292, 298, 299, 300, 301, 318, 319,
+    320, 322, 400, 401, 402, 403, 404, 405, 408, 409, 410, 411, 412, 413,
+];
+function isProfileBacked(index) {
+    return PROFILE_BACKED_PLACEHOLDERS.includes(index);
+}
 function hash(value) {
     let result = 5381;
     for (let i = 0; i < value.length; i++)
@@ -163,25 +177,26 @@ function allocateLocked(dataDirectory, models, upstream) {
     for (const [name, index] of assignments)
         if (reserved.has(index))
             assignments.delete(name);
+    // An assignment without an engine profile cannot run a single agent turn.
+    // Release it so the model is reallocated into a working placeholder.
+    for (const [name, index] of assignments)
+        if (!isProfileBacked(index))
+            assignments.delete(name);
     const used = new Set([...reserved, ...assignments.values()]);
     const unique = new Map(models.map((model) => [model.name, model]));
     if (unique.size !== models.length)
         throw new Error('Duplicate saved model names cannot have distinct native identities');
     const ordered = [...unique.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-    const legacyCounts = new Map();
-    for (const model of ordered) {
-        const index = placeholderIndex(legacyPlaceholderId(model));
-        legacyCounts.set(index, (legacyCounts.get(index) || 0) + 1);
-    }
-    // Preserve unambiguous legacy IDs during migration, before allocating collision replacements.
+    // Hand the profile-backed slots out first; only a full pool falls back to
+    // placeholders the engine may not know.
     for (const model of ordered) {
         if (assignments.has(model.name))
             continue;
-        const legacy = placeholderIndex(legacyPlaceholderId(model));
-        if (legacyCounts.get(legacy) === 1 && !used.has(legacy)) {
-            assignments.set(model.name, legacy);
-            used.add(legacy);
-        }
+        const index = PROFILE_BACKED_PLACEHOLDERS.find((candidate) => !used.has(candidate));
+        if (index === undefined)
+            break;
+        assignments.set(model.name, index);
+        used.add(index);
     }
     for (const model of ordered) {
         if (assignments.has(model.name))

@@ -62,9 +62,18 @@ function nativeModelExperiments(model) {
 function nativeCatalogCapabilities(model) {
     const cap = detectModelCapabilities(model);
     const checkpoint = nativeCheckpointConfig(model);
+    // The IDE validates its 50k threshold / 40k reserve defaults before any
+    // per-model override, and its agent turns serialize a message budget from
+    // this catalog value. A model advertised below the default threshold (a
+    // small local context window) therefore fails with
+    // "maxMessageTokens must be positive, got 0". Keep the floor for every
+    // model; the real window still drives trimContext and the saved settings.
     if (checkpoint?.tokenThreshold === undefined ||
         checkpoint.maxTokenLimit < exports.NATIVE_DEFAULT_CHECKPOINT_THRESHOLD)
-        return cap;
+        return {
+            ...cap,
+            maxTokens: Math.max(cap.maxTokens, exports.NATIVE_DEFAULT_CHECKPOINT_THRESHOLD + Math.max(40000, cap.maxOutputTokens)),
+        };
     return {
         ...cap,
         maxTokens: Math.max(cap.maxTokens, exports.NATIVE_DEFAULT_CHECKPOINT_THRESHOLD + Math.max(40000, cap.maxOutputTokens)),
@@ -80,6 +89,24 @@ const IMAGE_SUPPORT_PATTERN = /gpt-4o|gpt-4-turbo|claude|gemini|vision|llava|qwe
 // Positive family matches avoid excluding vision models just because their name
 // also contains a provider's text-only model family (for example DeepSeek-VL2).
 const DEEPSEEK_IMAGE_PATTERN = /(?:^|[\s/])(?:deepseek[-_ ]?vl2?|janus(?:[-_ ]?pro)?|deepseek-flash|deepseek-v4\.1-flash)(?=$|[-_:/\s])/i;
+/**
+ * The IDE agent needs a positive input budget. Hand-edited or imported model
+ * metadata can claim an output cap at or above the whole context window (or a
+ * zero window), which leaves the agent a zero-token message budget and fails
+ * its trajectory before the first generation.
+ */
+const MIN_INPUT_TOKENS = 1024;
+function positiveInteger(value) {
+    const number = Number(value);
+    return Number.isSafeInteger(number) && number > 0 ? number : undefined;
+}
+function normalizeTokenLimits(contextWindow, outputLimit) {
+    const context = positiveInteger(contextWindow) ?? 1048576;
+    const output = positiveInteger(outputLimit) ?? 16384;
+    if (context > MIN_INPUT_TOKENS)
+        return { maxTokens: context, maxOutputTokens: Math.min(output, context - MIN_INPUT_TOKENS) };
+    return { maxTokens: output + MIN_INPUT_TOKENS, maxOutputTokens: output };
+}
 /**
  * Detects model capabilities from a custom model config object.
  */
@@ -98,8 +125,7 @@ function detectModelCapabilities(m, includeDisplayName = true) {
         DEEPSEEK_PATTERN.test(extLower) ||
         (includeDisplayName && DEEPSEEK_PATTERN.test(displayLower));
     const isClaude = m.provider === 'anthropic' || CLAUDE_PATTERN.test(nameLower) || CLAUDE_PATTERN.test(extLower);
-    const maxTokens = m.contextWindow ?? (isClaude ? 200000 : 1048576);
-    const maxOutputTokens = m.maxOutputTokens ?? (isDeepSeek ? 32768 : isThinking ? 32768 : 16384);
+    const { maxTokens, maxOutputTokens } = normalizeTokenLimits(m.contextWindow ?? (isClaude ? 200000 : 1048576), m.maxOutputTokens ?? (isDeepSeek ? 32768 : isThinking ? 32768 : 16384));
     // Explicit configuration (including imported provider metadata) wins over
     // provider/name fallbacks, in both directions. Unknown models remain text-only.
     const allNames = nameLower + ' ' + extLower + ' ' + displayLower;
