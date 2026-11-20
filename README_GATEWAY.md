@@ -58,7 +58,13 @@ Ten moduł integruje lekki, lokalny serwer proxy (`model_proxy`) w aplikacji Sin
    - Odpowiedź upstreamu jest strumieniowana bez buforowania: status, nagłówki, body i ramkowanie SSE wracają dokładnie takie, jakie wysłał endpoint.
    - Brak retry/fallbacku i brak kopert `{ response, traceId, metadata }` — endpoint jest właścicielem formatu.
 
-4. **Formaty i providerzy:**
+4. **Wpis „Auto (router picks the best model…)” w wyborze modelu:**
+   - To natywny wpis Google — jego identyfikator nie pasuje do żadnego zapisanego modelu, więc wcześniej każde takie żądanie leciało do Cloud Code (Google) i **nigdy** nie trafiało do FreeLLMAPI.
+   - Proxy uczy się identyfikatorów tego wpisu z katalogu modeli (`fetchAvailableModels`) i kieruje wybór „Auto” do zapisanego modelu: oznaczonego polem `"autoTarget": true`, a gdy takie oznaczenie nie istnieje — do jedynego włączonego modelu.
+   - W treści żądania pole `model` jest zamieniane na `externalModelName` zapisanego modelu, bo endpoint nie zna natywnych identyfikatorów Google.
+   - Gdy zapisanych jest kilka modeli i żaden nie ma `autoTarget`, Auto pozostaje natywne (żądanie idzie do Google), a w `proxy.log` pojawia się ostrzeżenie.
+
+5. **Formaty i providerzy:**
    - `providers.js` zawiera preset `free-llm-api` z `apiFormat: "passthrough"`.
    - Format `passthrough` jest akceptowany przez walidator konfiguracji i widoczny w formularzu modelu („Pass-through (no gateway translation)”).
    - Nie ma żadnych sprawdzeń silnika/providera, które blokowałyby model kierowany do FreeLLMAPI.

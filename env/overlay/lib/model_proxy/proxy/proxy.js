@@ -157,7 +157,87 @@ function matchCustomModel(models, ...selectors) {
                 selector === identity.placeholderValue));
     });
 }
+// ─── Native "Auto" router ────────────────────────────────────────────────
+/**
+ * The IDE's own "Auto (router picks the best model …)" picker entry belongs to
+ * Google: its id matches no saved model, so those turns were always forwarded
+ * to Cloud Code and never reached the configured endpoint. While building the
+ * catalog we learn the ids Google uses for that entry and route those
+ * selections to the saved model that should back Auto.
+ */
+const autoRouterSelectors = new Set();
+function rememberAutoRouterEntries(upstream) {
+    if (!upstream || typeof upstream !== 'object')
+        return;
+    const remember = (value) => {
+        if (typeof value === 'string' && value)
+            autoRouterSelectors.add(value.replace(/^models\//, ''));
+    };
+    for (const key of ['models', 'availableModels', 'available_models']) {
+        const collection = upstream[key];
+        if (!collection || typeof collection !== 'object')
+            continue;
+        for (const [slug, entry] of Object.entries(collection)) {
+            if (!entry || typeof entry !== 'object')
+                continue;
+            const label = entry.displayName ?? entry.display_name;
+            if (typeof label !== 'string' || !/^auto\b/i.test(label.trim()))
+                continue;
+            remember(slug);
+            for (const value of [entry.model, entry.modelId, entry.id, entry.name])
+                remember(value);
+        }
+    }
+    if (!Array.isArray(upstream.agentModelSorts))
+        return;
+    for (const sort of upstream.agentModelSorts) {
+        if (!sort || typeof sort !== 'object' || !Array.isArray(sort.groups))
+            continue;
+        for (const group of sort.groups) {
+            if (!group || typeof group.displayName !== 'string' || !/^auto\b/i.test(group.displayName.trim()))
+                continue;
+            for (const value of group.modelIds || [])
+                remember(value);
+        }
+    }
+}
+/** The saved model that Auto should use: a model marked `autoTarget`, else the only enabled one. */
+function matchAutoRouter(models, ...selectors) {
+    if (!autoRouterSelectors.size)
+        return undefined;
+    const selected = selectors
+        .filter((selector) => typeof selector === 'string')
+        .map((selector) => selector.replace(/^models\//, ''));
+    if (!selected.some((selector) => autoRouterSelectors.has(selector)))
+        return undefined;
+    const enabled = models.filter((model) => model.enabled !== false);
+    const designated = enabled.filter((model) => model.autoTarget === true || model.autoRouter === true);
+    const target = designated[0] || (enabled.length === 1 ? enabled[0] : undefined);
+    if (!target) {
+        electron_log_1.default.warn('[Proxy] Auto router request ignored: save exactly one model, or mark one with "autoTarget": true, so Auto can use it.');
+    }
+    return target;
+}
+/** Auto turns leave the picker with a native id; the endpoint needs the saved model's own id. */
+function withSavedModelName(rawBody, model) {
+    try {
+        const parsed = JSON.parse(rawBody.toString('utf8'));
+        const name = model.externalModelName || String(model.name || '').replace(/^models\//, '');
+        if (!name)
+            return rawBody;
+        parsed.model = name;
+        if (parsed.modelId !== undefined)
+            parsed.modelId = name;
+        if (parsed.model_id !== undefined)
+            parsed.model_id = name;
+        return Buffer.from(JSON.stringify(parsed), 'utf8');
+    }
+    catch {
+        return rawBody;
+    }
+}
 function customCloudCodeCatalog(upstream = {}) {
+    rememberAutoRouterEntries(upstream);
     const models = loadCustomModels();
     const identities = modelIdentities(models, upstream);
     const labels = (0, modelCatalog_1.catalogDisplayNames)(models, upstream);
@@ -1188,10 +1268,15 @@ function handleRequest(req, res) {
                         actualGeminiBody.conversationId = reqJson.conversationId;
                     if (!actualGeminiBody.labels && reqJson.labels && typeof reqJson.labels === 'object')
                         actualGeminiBody.labels = reqJson.labels;
-                    const matchedCustomModel = matchCustomModel(customModels, modelName, modelId);
+                    let matchedCustomModel = matchCustomModel(customModels, modelName, modelId);
+                    let autoRouted = false;
+                    if (!matchedCustomModel) {
+                        matchedCustomModel = matchAutoRouter(customModels, modelName, modelId);
+                        autoRouted = Boolean(matchedCustomModel);
+                    }
                     if (matchedCustomModel) {
-                        electron_log_1.default.info(`[Proxy] Pass-through Cloud Code generation for custom model: ${modelName} => ${matchedCustomModel.displayName}`);
-                        handleCustomModelRequest(req, res, matchedCustomModel, fullBody);
+                        electron_log_1.default.info(`[Proxy] Pass-through ${autoRouted ? 'Auto router ' : ''}Cloud Code generation for custom model: ${modelName} => ${matchedCustomModel.displayName}`);
+                        handleCustomModelRequest(req, res, matchedCustomModel, autoRouted ? withSavedModelName(fullBody, matchedCustomModel) : fullBody);
                         return;
                     }
                     const prepared = subagentRouting_1.subagentRouting.prepareRequest(actualGeminiBody, (selector) => (0, subagentModels_1.resolveConfiguredSubagentModel)(customModels, selector)?.name);
@@ -1242,9 +1327,15 @@ function handleRequest(req, res) {
             const customModels = loadCustomModels();
             try {
                 const geminiBody = JSON.parse(bodyStr);
-                const matchedCustomModel = matchCustomModel(customModels, matchedModelName);
+                let matchedCustomModel = matchCustomModel(customModels, matchedModelName);
+                let autoRouted = false;
+                if (!matchedCustomModel) {
+                    matchedCustomModel = matchAutoRouter(customModels, matchedModelName);
+                    autoRouted = Boolean(matchedCustomModel);
+                }
                 if (matchedCustomModel) {
-                    handleCustomModelRequest(req, res, matchedCustomModel, fullBody);
+                    electron_log_1.default.info(`[Proxy] Pass-through ${autoRouted ? 'Auto router ' : ''}generation for custom model: ${matchedModelName} => ${matchedCustomModel.displayName}`);
+                    handleCustomModelRequest(req, res, matchedCustomModel, autoRouted ? withSavedModelName(fullBody, matchedCustomModel) : fullBody);
                     return;
                 }
                 const prepared = subagentRouting_1.subagentRouting.prepareRequest(geminiBody, (selector) => (0, subagentModels_1.resolveConfiguredSubagentModel)(customModels, selector)?.name);
